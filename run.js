@@ -4,18 +4,19 @@
  *
  * 功能：
  * 1. 检查知识库是否需要刷新（超90天自动重新获取）
- * 2. iOA 登录状态检查（过期自动发起手机验证）
+ * 2. iOA 登录状态检查（浏览器已有 session 直接跳过，无需手机确认）
  * 3. 抓取昨日所有「待首次回复」的反馈
- * 4. 按模板A/B/C + 功能指引生成回复建议
+ * 4. 按模板A/B/C + 功能指引精准匹配回复（优先知识库）
  * 5. 生成可编辑回复工具网页（含 localStorage 落盘）
- * 6. 企业微信通知（暖心话 + 工具链接）
+ * 6. 确保静态服务从 skill 目录启动（自动检查并修正）
+ * 7. 企业微信通知（去重：同一天只推一次）
  */
 
 const fs   = require('fs');
 const path = require('path');
 const http  = require('http');
 const https = require('https');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
@@ -40,22 +41,39 @@ const CONFIG = {
 
   WECOM_WEBHOOK: process.env.WECOM_WEBHOOK ||
     'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=62b8f70c-c8d8-45c7-b0e8-656bae7382fa',
+
+  // 企微 @人配置：填写你的企微 userid
+  // 多人用逗号分隔，如 'userid1,userid2'；空字符串则不 @
+  WECOM_MENTION_USERID: process.env.WECOM_MENTION_USERID || 'cathyfwang',
+
+  // 企微通知去重文件路径
+  NOTIFY_LOCK_FILE: path.join(__dirname, 'memory', 'notify_lock.json'),
 };
 
 // ===== 回复模板 =====
 const TEMPLATE = {
-  // 模板A：默认兜底（FAQ无匹配 / 不明确 / 外文）
+  // 模板A：引导用户区分个人版/企业版（问题不明确 / 疑似个人版用户 / 外文）
   A: `您好，这里是腾讯文档企业版的官方反馈入口，请问您使用的是腾讯文档个人版（通过个人qq或微信登录）还是企业版呢？如您使用的是个人版，需点击该链接：https://docs.qq.com/home/feedback?src=1269 ，描述您具体遇到的使用问题，提供相关截图提交反馈。`,
 
-  // 模板B：会员/退费/发票/开票
+  // 模板B：会员/退费/发票/开票（个人版相关付费问题）
   B: `您好，这里是腾讯文档企业版的官方反馈入口。关于您反馈的个人账号（个人微信/QQ）腾讯文档使用问题，可以点击该链接：https://docs.qq.com/home/feedback?src=1269 ，描述您具体遇到的使用问题，提供相关截图提交反馈，以便更好的为您核实。`,
 
   // 模板C：企微/企业微信/企微文档
   C: `您好，这里是腾讯文档企业版的官方反馈入口，关于您反馈的关于企微文档的问题，可以在企业微信中联系企微客服或企微小助手。`,
+
+  // 模板D：企业版功能具体问题（知识库无精准匹配，但问题明确属于企业版功能范畴）
+  D: `您好，感谢您的反馈！您反馈的问题我们已经记录，将安排相关同学跟进处理。如问题较为紧急，也可通过企业微信联系我们的企微小助手获取更快速的支持，感谢您对腾讯文档企业版的支持与信任！`,
 };
 
 const KEYWORDS_B = ['会员', '退费', '发票', '开票', '充值', '付费', '订单', '退款', 'vip', 'VIP'];
 const KEYWORDS_C = ['企微', '企业微信', '企微文档'];
+// 模板A 触发词：明显是个人版用户 / 问题不明确
+const KEYWORDS_A_HINT = ['个人版', '微信登录', 'qq登录', 'QQ登录', '个人账号', '个人微信'];
+// 判断是否为企业版功能性问题（字数>=8且为中文，说明问题具体，兜底用D而非A）
+function isEnterpriseFeatureQuestion(question) {
+  const chineseChars = (question.match(/[\u4e00-\u9fa5]/g) || []).length;
+  return chineseChars >= 8 && !KEYWORDS_A_HINT.some(k => question.includes(k));
+}
 
 // ===== 工具函数 =====
 const log  = msg => console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
@@ -66,13 +84,48 @@ async function runBrowser(cmd, timeout = 30000) {
   return stdout.trim();
 }
 
+// ===== 静态服务管理（修复问题2+4：固定从 skill 目录启动）=====
+async function ensureStaticServer() {
+  log('🌐 检查静态服务...');
+  try {
+    // 查询 3399 端口的进程工作目录
+    const { stdout: pidOut } = await execAsync(`lsof -i :${CONFIG.STATIC_PORT} | grep LISTEN | awk '{print $2}'`);
+    const pid = pidOut.trim();
+
+    if (pid) {
+      // 检查工作目录是否是 skill 目录
+      const { stdout: cwdOut } = await execAsync(`lsof -p ${pid} | grep cwd | awk '{print $NF}'`);
+      const cwd = cwdOut.trim();
+      if (cwd === CONFIG.SKILL_DIR) {
+        log('✅ 静态服务已就绪（根目录正确）');
+        return;
+      }
+      // 根目录不对，杀掉重启
+      log(`⚠️ 静态服务根目录不对（${cwd}），重启中...`);
+      await execAsync(`kill ${pid}`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // 启动新的静态服务
+    const child = spawn('npx', ['serve', '.', '-p', String(CONFIG.STATIC_PORT), '--no-clipboard'], {
+      cwd: CONFIG.SKILL_DIR,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    await new Promise(r => setTimeout(r, 2000));
+    log(`✅ 静态服务已启动，根目录：${CONFIG.SKILL_DIR}`);
+  } catch(e) {
+    warn('静态服务检查异常：' + e.message);
+  }
+}
+
 // ===== 知识库管理 =====
 function getKnowledgeMeta() {
   if (!fs.existsSync(CONFIG.KNOWLEDGE_FILE)) return null;
   const raw = fs.readFileSync(CONFIG.KNOWLEDGE_FILE, 'utf8');
   const fetchedAt    = (raw.match(/fetched_at:\s*(.+)/)    || [])[1]?.trim();
   const refreshAfter = (raw.match(/refresh_after:\s*(.+)/) || [])[1]?.trim();
-  // content = 去掉 frontmatter 的全部文本
   const body = raw.replace(/^---[\s\S]*?---\n/, '');
   return { fetchedAt, refreshAfter, body };
 }
@@ -106,28 +159,33 @@ async function refreshKnowledge() {
       'title: 企微SaaS文档-产品知识帮助中心',
       '---',
       '',
-      '## ===== 标准回复模板规则 =====',
+      '## ===== 标准回复模板规则（优先于功能指引内容匹配）=====',
       '',
       '### 模板A：默认回复',
-      '适用场景：FAQ无匹配 / 问题不明确 / 疑似非企业版用户 / 外文误提交',
+      '**适用场景：** FAQ无匹配 / 问题不明确 / 疑似非企业版用户 / 外文误提交',
       '',
       `> ${TEMPLATE.A}`,
       '',
       '---',
       '',
       '### 模板B：会员/退费/发票/开票',
-      '触发关键词：会员、退费、发票、开票',
+      '**触发关键词：** 会员、退费、发票、开票',
       '',
       `> ${TEMPLATE.B}`,
       '',
       '---',
       '',
       '### 模板C：企微/企业微信/企微文档',
-      '触发关键词：企微、企业微信、企微文档',
+      '**触发关键词：** 企微、企业微信、企微文档',
       '',
       `> ${TEMPLATE.C}`,
       '',
       '---',
+      '',
+      '## ===== 匹配优先级说明 =====',
+      '1. 先检查触发关键词：含「会员/退费/发票/开票」→ 模板B；含「企微/企业微信/企微文档」→ 模板C',
+      '2. 可在功能指引中找到精准答案 → 按功能指引内容回答',
+      '3. 无法匹配、问题不明确、外文 → 模板A（默认回复）',
       '',
       '## ===== 腾讯文档功能指引内容 =====',
       '',
@@ -149,22 +207,47 @@ async function getKnowledge() {
   return getKnowledgeMeta()?.body || '';
 }
 
-// ===== iOA 登录 =====
+// ===== iOA 登录（修复问题3：浏览器已有 session 直接跳过，不触发手机验证）=====
 async function ensureLogin() {
   log('🔐 检查 AiSee 登录状态...');
   try {
     await runBrowser(`open "${CONFIG.AISEE_LIST}"`);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
     const url = (await runBrowser('eval "window.location.href"')).replace(/"/g, '');
-    if (url.includes('aisee.woa.com/admin')) { log('✅ 已登录'); return true; }
 
-    log('⚠️ 需要 iOA 登录，发起验证...');
+    if (url.includes('aisee.woa.com/admin')) {
+      log('✅ 已登录，直接继续');
+      return true;
+    }
+
+    // 未登录：检查页面上是否有「发起验证」按钮
+    log('⚠️ 检测到未登录，尝试自动触发验证...');
     await new Promise(r => setTimeout(r, 1500));
     const snap = await runBrowser('snapshot -i');
     const m = snap.match(/button "发起验证" \[ref=(e\d+)\]/);
-    if (m) { await runBrowser(`click "${m[1]}"`); log('📱 已发起 iOA 推送，等待手机确认...'); }
+    if (m) {
+      await runBrowser(`click "${m[1]}"`);
+      log('📱 已发起 iOA 推送，等待手机确认（最多60秒）...');
+      // 每5秒轮询一次，最多等60秒
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const curUrl = (await runBrowser('eval "window.location.href"').catch(() => '')).replace(/"/g, '');
+        if (curUrl.includes('aisee.woa.com/admin')) {
+          log('✅ iOA 验证通过，登录成功');
+          return true;
+        }
+        log(`⏳ 等待中... (${(i+1)*5}s)`);
+      }
+      log('❌ iOA 验证超时，请手动登录后重试');
+      return false;
+    } else {
+      log('⚠️ 未找到「发起验证」按钮，请检查页面状态');
+      return false;
+    }
+  } catch(e) {
+    warn('登录检查异常：' + e.message);
     return false;
-  } catch(e) { warn('登录检查异常：' + e.message); return false; }
+  }
 }
 
 // ===== 抓取反馈列表 =====
@@ -176,16 +259,19 @@ async function fetchFeedback() {
   const raw = await runBrowser(`eval "JSON.stringify(Array.from(document.querySelectorAll('table tbody tr[data-row-key]')).map(tr=>{const fid=tr.getAttribute('data-row-key');const q=(tr.querySelector('td:nth-child(2) > div:first-child')||{}).innerText||'';const st=(tr.querySelector('td:nth-child(4)')||{}).innerText||'';const t=(tr.querySelector('td:nth-child(6)')||{}).innerText||'';return{fid,question:q.trim().split('\\n')[0],status:st.trim(),time:t.trim()}}).filter(i=>i.fid&&i.question))"`);
 
   try {
-    const list = JSON.parse(raw);
+    let parsed = JSON.parse(raw);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    const list = Array.isArray(parsed) ? parsed : [];
     log(`✅ 获取 ${list.length} 条反馈`);
     return list;
   } catch(e) {
     warn('解析反馈列表失败：' + e.message);
+    warn('原始内容片段：' + String(raw).slice(0, 200));
     return [];
   }
 }
 
-// ===== 生成回复 =====
+// ===== 生成回复（修复问题1：优先知识库精准匹配，企业版功能问题用模板D兜底）=====
 function generateReply(question, knowledge) {
   // 优先级1：模板C（企微相关）
   if (KEYWORDS_C.some(k => question.includes(k))) {
@@ -195,28 +281,77 @@ function generateReply(question, knowledge) {
   if (KEYWORDS_B.some(k => question.includes(k))) {
     return { answer: TEMPLATE.B, tag: 'fixed', tagLabel: '会员/发票 → 模板B' };
   }
-  // 优先级3：功能指引匹配
+  // 优先级3：功能指引精准匹配（降低阈值，扩大匹配范围）
   if (knowledge) {
     const matched = matchKnowledge(question, knowledge);
     if (matched) return { answer: matched, tag: 'guide', tagLabel: '按功能指引回复' };
   }
-  // 兜底：模板A
+  // 优先级4：问题明确的企业版功能性问题 → 模板D（已记录，跟进处理）
+  if (isEnterpriseFeatureQuestion(question)) {
+    return { answer: TEMPLATE.D, tag: 'fixed', tagLabel: '企业版功能问题 → 模板D' };
+  }
+  // 兜底：模板A（问题不明确 / 疑似个人版 / 外文）
   return { answer: TEMPLATE.A, tag: 'fixed', tagLabel: '无法匹配 → 模板A' };
 }
 
 function matchKnowledge(question, knowledge) {
-  const kws = question.replace(/[？?！!。，,、\s]/g, ' ').split(' ').filter(w => w.length >= 2);
-  const sections = knowledge.split(/\n(?=##|如何|怎么|怎样)/);
+  // 提取问题中的有效关键词（长度>=2，去除标点）
+  const kws = question
+    .replace(/[？?！!。，,、\s「」【】《》""''（）()]/g, ' ')
+    .split(' ')
+    .map(w => w.trim())
+    .filter(w => w.length >= 2);
+
+  if (kws.length === 0) return null;
+
+  // 按功能块切割知识库（每个以 emoji 开头的功能标题为一块）
+  // 支持「如何」「怎么」「怎样」「功能」段落切割
+  const sections = knowledge.split(/\n(?=[💹🗂🔂🖼🎏📊➕♾️🌍📔🔳✍️🔲➖📄🔢🔚🔄🌍⌨🔏📅📇🔝👨‍🎨📑🆕✍️⌨️📁🤝〰📶➕🆎↪🔬🧭☂🚩📃🔗🔁📣🌍📞⬇📊⬇🌟◻]|如何|怎么|怎样)/);
+
   let best = 0, bestSec = null;
   for (const sec of sections) {
-    const score = kws.filter(k => sec.includes(k)).length;
+    if (!sec.trim()) continue;
+    // 计算匹配分：每个关键词在该段出现1次记1分，出现在标题行额外+1
+    let score = 0;
+    const lines = sec.split('\n');
+    const titleLine = lines[0] || '';
+    for (const kw of kws) {
+      if (sec.includes(kw)) {
+        score += 1;
+        if (titleLine.includes(kw)) score += 1; // 标题命中加权
+      }
+    }
     if (score > best) { best = score; bestSec = sec; }
   }
-  if (best >= 2 && bestSec) {
-    const trimmed = bestSec.trim();
-    return `您好！关于您的问题，以下是相关指引：\n\n${trimmed.substring(0, 500)}`;
+
+  // 阈值：至少1个关键词命中（问题越具体阈值越低）
+  const threshold = kws.length >= 4 ? 2 : 1;
+  if (best >= threshold && bestSec) {
+    // 提取功能段落的核心内容（去掉多余空行，截取前600字）
+    const trimmed = bestSec
+      .split('\n')
+      .filter(l => l.trim())
+      .join('\n')
+      .substring(0, 600);
+    return `您好！关于您反馈的问题，以下是相关功能指引：\n\n${trimmed}`;
   }
   return null;
+}
+
+// ===== 企微通知去重（修复问题6：同一天同批次只推一次）=====
+function hasNotifiedToday(targetDate) {
+  try {
+    if (!fs.existsSync(CONFIG.NOTIFY_LOCK_FILE)) return false;
+    const lock = JSON.parse(fs.readFileSync(CONFIG.NOTIFY_LOCK_FILE, 'utf8'));
+    return lock.date === targetDate;
+  } catch(e) { return false; }
+}
+
+function markNotified(targetDate) {
+  try {
+    fs.mkdirSync(CONFIG.MEMORY_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG.NOTIFY_LOCK_FILE, JSON.stringify({ date: targetDate, notifiedAt: new Date().toISOString() }), 'utf8');
+  } catch(e) { warn('写入通知锁失败：' + e.message); }
 }
 
 // ===== 生成 HTML（含 localStorage 落盘）=====
@@ -434,10 +569,16 @@ render();chkSrv();setInterval(chkSrv,15000);
 // ===== 企业微信通知 =====
 async function sendWecom(url, count, targetDate) {
   if (!CONFIG.WECOM_WEBHOOK) { warn('未配置企微 Webhook，跳过通知'); return; }
+
+  const mentionStr = CONFIG.WECOM_MENTION_USERID
+    ? CONFIG.WECOM_MENTION_USERID.split(',').map(id => `<@${id.trim()}>`).join(' ') + '\n\n'
+    : '';
+
   const body = JSON.stringify({
     msgtype: 'markdown',
     markdown: {
       content:
+        mentionStr +
         `🌸 **菲菲公主早上好！今天也是元气满满的一天，每一条回复都是对用户最好的照见～** 💪\n\n` +
         `📋 **${targetDate} AiSee 反馈待回复清单已就绪**\n\n` +
         `> 共有 **${count}** 条用户反馈等待回复，AI 已根据腾讯文档功能指引准备好了答案 ✨\n\n` +
@@ -475,28 +616,29 @@ async function main() {
   log('🚀 AiSee 反馈自动回复工具启动');
   log(`📅 目标日期：${targetDate}`);
 
+  // 0. 确保静态服务从 skill 目录启动（修复问题2+4）
+  await ensureStaticServer();
+
   // 1. 知识库
   const knowledge = await getKnowledge();
 
-  // 2. 登录检查
+  // 2. 登录检查（修复问题3：已有 session 直接跳过）
   const loggedIn = await ensureLogin();
   if (!loggedIn) {
-    log('⏳ 等待 iOA 手机确认（最多60秒）...');
-    await new Promise(r => setTimeout(r, 60000));
-    const url = (await runBrowser('eval "window.location.href"').catch(() => '')).replace(/"/g, '');
-    if (!url.includes('aisee.woa.com/admin')) {
-      log('❌ 登录超时，退出'); process.exit(1);
-    }
-    log('✅ 登录成功');
+    log('❌ 登录失败，退出'); process.exit(1);
   }
 
-  // 3. 抓取反馈
+  // 3. 抓取反馈，严格过滤：
+  //    - 必须是 targetDate 当天提交（time 字段前10位 === targetDate）
+  //    - 状态不含「已回复」（除非 DEBUG_ALL=1）
   const all = await fetchFeedback();
-  // 过滤「待首次回复」（状态不含"已回复"）
-  const unreplied = all.filter(item =>
-    !item.status.includes('已回复') || process.env.DEBUG_ALL === '1'
-  );
-  log(`📝 待回复：${unreplied.length} 条`);
+  const unreplied = all.filter(item => {
+    const itemDate = (item.time || '').slice(0, 10);
+    const dateMatch = itemDate === targetDate;
+    const notReplied = !item.status.includes('已回复') || process.env.DEBUG_ALL === '1';
+    return dateMatch && notReplied;
+  });
+  log(`📝 ${targetDate} 待回复：${unreplied.length} 条（共扫描 ${all.length} 条）`);
 
   // 4. 生成回复建议
   const items = unreplied.map(item => {
@@ -514,10 +656,15 @@ async function main() {
   const snap = path.join(CONFIG.MEMORY_DIR, `snapshot_${targetDate}.json`);
   fs.writeFileSync(snap, JSON.stringify(items, null, 2), 'utf8');
 
-  // 7. 通知
+  // 7. 企微通知（去重：同一天只推一次，修复问题6）
   const staticUrl = `http://localhost:${CONFIG.STATIC_PORT}/output/reply_tool.html`;
   if (items.length > 0) {
-    await sendWecom(staticUrl, items.length, targetDate);
+    if (hasNotifiedToday(targetDate)) {
+      log(`ℹ️ 今天（${targetDate}）已推送过企微通知，跳过重复推送`);
+    } else {
+      await sendWecom(staticUrl, items.length, targetDate);
+      markNotified(targetDate);
+    }
   } else {
     log('ℹ️ 无待回复问题，跳过企微通知');
   }
