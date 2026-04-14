@@ -25,8 +25,17 @@ const CONFIG = {
   SKILL_DIR   : __dirname,
   MEMORY_DIR  : path.join(__dirname, 'memory'),
   KNOWLEDGE_FILE: path.join(__dirname, 'memory', 'knowledge.md'),
-  KNOWLEDGE_DOC_ID : 'DTEVpVGZJR3B6QUlw',
-  KNOWLEDGE_URL    : 'https://docs.qq.com/aio/DTEVpVGZJR3B6QUlw?u=49e9d070c42e4e15a41bcc294b300099&p=UzHNdSGlGaG0XW85HZImG5',
+  // 知识库文档源列表（自动刷新时逐个获取并合并）
+  KNOWLEDGE_DOCS: [
+    { id: 'DTEVpVGZJR3B6QUlw', url: 'https://docs.qq.com/aio/DTEVpVGZJR3B6QUlw', title: '企微SaaS文档-产品知识帮助中心' },
+    { id: 'DTG9VUFNvWGpnRnRB', url: 'https://docs.qq.com/doc/DTG9VUFNvWGpnRnRB', title: '腾讯文档企业版(私有化)用户使用手册1.11' },
+    { id: 'DTGFscUZIaGREa2tH', url: 'https://docs.qq.com/doc/DTGFscUZIaGREa2tH', title: '腾讯文档企业版(私有化)管理员使用手册1.11' },
+    { id: 'DTFBDUldXRFRvU0lk', url: 'https://docs.qq.com/aio/DTFBDUldXRFRvU0lk', title: '智能文档撰写方法与排版技巧' },
+    { id: 'DTHJwU09HTWVrV29h', url: 'https://docs.qq.com/doc/DTHJwU09HTWVrV29h', title: '腾讯文档企业版-智能文档使用手册' },
+    { id: 'DTGlwcndCZmNmZEJW', url: 'https://docs.qq.com/doc/DTGlwcndCZmNmZEJW', title: '腾讯文档企业版-智能表格使用手册' },
+    { id: 'DTHRVYlpvYUJLalVX', url: 'https://docs.qq.com/aio/DTHRVYlpvYUJLalVX', title: '企业版(私有化)更新日志2025' },
+    { id: 'DTHZpWHJjdEFyYm1n', url: 'https://docs.qq.com/aio/DTHZpWHJjdEFyYm1n', title: '腾讯文档企业版AI能力简介' },
+  ],
   KNOWLEDGE_REFRESH_DAYS: 90,
 
   AISEE_LIST  : 'https://aisee.woa.com/admin/p-23ba9e1e-7bfd-3d15-806d-31f9b3e3a531/b-a9ba8a76-deb1-328c-af3b-2fc7c54ac4f6/p5sr49xhf1/operate/aiseeList',
@@ -138,25 +147,41 @@ function needsRefresh() {
 }
 
 async function refreshKnowledge() {
-  log('📚 知识库已过期，重新获取...');
+  log('📚 知识库已过期，重新获取多个文档源...');
   try {
-    const { stdout } = await execAsync(
-      `${CONFIG.MCPORTER} call "tencent-docs" "get_content" --args '{"file_id":"${CONFIG.KNOWLEDGE_DOC_ID}"}'`,
-      { timeout: 60000 }
-    );
-    const parsed  = JSON.parse(stdout);
-    const content = parsed.content || '';
-    if (!content) throw new Error('返回内容为空');
+    const docs = CONFIG.KNOWLEDGE_DOCS;
+    const contents = [];
+    for (const doc of docs) {
+      try {
+        const { stdout } = await execAsync(
+          `${CONFIG.MCPORTER} call "tencent-docs" "get_content" --args '{"file_id":"${doc.id}"}'`,
+          { timeout: 60000 }
+        );
+        const parsed = JSON.parse(stdout);
+        const content = (parsed.content || '').trim();
+        if (content) {
+          contents.push(`### 📄 来源：${doc.title}\n> doc_id: ${doc.id}\n> url: ${doc.url}\n\n${content}`);
+          log(`  ✅ ${doc.title}（${content.length}字）`);
+        } else {
+          warn(`  ⚠️ ${doc.title} 返回为空`);
+        }
+      } catch(e) {
+        warn(`  ❌ ${doc.title} 获取失败：${e.message}`);
+      }
+    }
+
+    if (contents.length === 0) throw new Error('所有文档获取均失败');
 
     const now = new Date();
     const refreshAfter = new Date(now.getTime() + CONFIG.KNOWLEDGE_REFRESH_DAYS * 86400000);
     const header = [
       '---',
-      `source: ${CONFIG.KNOWLEDGE_URL}`,
+      `sources:`,
+      ...docs.map(d => `  - ${d.url}`),
       `fetched_at: ${now.toISOString().slice(0,19).replace('T',' ')}`,
       `refresh_after: ${refreshAfter.toISOString().slice(0,10)}`,
-      `doc_id: ${CONFIG.KNOWLEDGE_DOC_ID}`,
-      'title: 企微SaaS文档-产品知识帮助中心',
+      `doc_count: ${docs.length}`,
+      'title: 腾讯文档企业版-综合知识库',
       '---',
       '',
       '## ===== 标准回复模板规则（优先于功能指引内容匹配）=====',
@@ -169,7 +194,7 @@ async function refreshKnowledge() {
       '---',
       '',
       '### 模板B：会员/退费/发票/开票',
-      '**触发关键词：** 会员、退费、发票、开票',
+      '**触发关键词：** 会员、退费、发票、开票、充值、付费、订单、退款、vip',
       '',
       `> ${TEMPLATE.B}`,
       '',
@@ -182,19 +207,28 @@ async function refreshKnowledge() {
       '',
       '---',
       '',
+      '### 模板D：企业版功能性问题兜底',
+      '**适用场景：** 问题明确（中文字符≥8），知识库无精准匹配',
+      '',
+      `> ${TEMPLATE.D}`,
+      '',
+      '---',
+      '',
       '## ===== 匹配优先级说明 =====',
       '1. 先检查触发关键词：含「会员/退费/发票/开票」→ 模板B；含「企微/企业微信/企微文档」→ 模板C',
       '2. 可在功能指引中找到精准答案 → 按功能指引内容回答',
-      '3. 无法匹配、问题不明确、外文 → 模板A（默认回复）',
+      '3. 问题明确（中文字符≥8）但知识库无匹配 → 模板D',
+      '4. 无法匹配、问题不明确、外文 → 模板A（默认回复）',
       '',
       '## ===== 腾讯文档功能指引内容 =====',
       '',
     ].join('\n');
 
+    const body = contents.join('\n\n---\n\n');
     fs.mkdirSync(CONFIG.MEMORY_DIR, { recursive: true });
-    fs.writeFileSync(CONFIG.KNOWLEDGE_FILE, header + content, 'utf8');
-    log(`✅ 知识库已更新，下次刷新：${refreshAfter.toISOString().slice(0,10)}`);
-    return content;
+    fs.writeFileSync(CONFIG.KNOWLEDGE_FILE, header + body, 'utf8');
+    log(`✅ 知识库已更新（${contents.length}/${docs.length} 个文档），下次刷新：${refreshAfter.toISOString().slice(0,10)}`);
+    return body;
   } catch(e) {
     warn(`知识库刷新失败：${e.message}，沿用缓存`);
     return getKnowledgeMeta()?.body || '';
