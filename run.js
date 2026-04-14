@@ -76,20 +76,10 @@ const TEMPLATE = {
 
   // 模板C：企微/企业微信/企微文档
   C: `您好，这里是腾讯文档企业版的官方反馈入口，关于您反馈的关于企微文档的问题，可以在企业微信中联系企微客服或企微小助手。`,
-
-  // 模板D：企业版功能具体问题（知识库无精准匹配，但问题明确属于企业版功能范畴）
-  D: `您好，感谢您的反馈！您反馈的问题我们已经记录，将安排相关同学跟进处理。如问题较为紧急，也可通过企业微信联系我们的企微小助手获取更快速的支持，感谢您对腾讯文档企业版的支持与信任！`,
 };
 
 const KEYWORDS_B = ['会员', '退费', '发票', '开票', '充值', '付费', '订单', '退款', 'vip', 'VIP'];
 const KEYWORDS_C = ['企微', '企业微信', '企微文档'];
-// 模板A 触发词：明显是个人版用户 / 问题不明确
-const KEYWORDS_A_HINT = ['个人版', '微信登录', 'qq登录', 'QQ登录', '个人账号', '个人微信'];
-// 判断是否为企业版功能性问题（字数>=8且为中文，说明问题具体，兜底用D而非A）
-function isEnterpriseFeatureQuestion(question) {
-  const chineseChars = (question.match(/[\u4e00-\u9fa5]/g) || []).length;
-  return chineseChars >= 8 && !KEYWORDS_A_HINT.some(k => question.includes(k));
-}
 
 // ===== 工具函数 =====
 const log  = msg => console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
@@ -312,71 +302,24 @@ async function fetchFeedback() {
   }
 }
 
-// ===== 生成回复（修复问题1：优先知识库精准匹配，企业版功能问题用模板D兜底）=====
-function generateReply(question, knowledge) {
+// ===== 生成回复（分两阶段：第一阶段关键词命中，第二阶段交AI生成）=====
+// 第一阶段：关键词明确命中 → 直接使用模板；其余标记 needsAI
+function generateReply(question) {
   // 优先级1：模板C（企微相关）
   if (KEYWORDS_C.some(k => question.includes(k))) {
-    return { answer: TEMPLATE.C, tag: 'fixed', tagLabel: '企微问题 → 模板C' };
+    return { answer: TEMPLATE.C, tag: 'fixed', tagLabel: '企微问题 → 模板C', needsAI: false };
   }
   // 优先级2：模板B（会员/发票）
   if (KEYWORDS_B.some(k => question.includes(k))) {
-    return { answer: TEMPLATE.B, tag: 'fixed', tagLabel: '会员/发票 → 模板B' };
+    return { answer: TEMPLATE.B, tag: 'fixed', tagLabel: '会员/发票 → 模板B', needsAI: false };
   }
-  // 优先级3：功能指引精准匹配（降低阈值，扩大匹配范围）
-  if (knowledge) {
-    const matched = matchKnowledge(question, knowledge);
-    if (matched) return { answer: matched, tag: 'guide', tagLabel: '按功能指引回复' };
+  // 优先级3：问题不明确 / 外文 → 模板A
+  const chineseChars = (question.match(/[\u4e00-\u9fa5]/g) || []).length;
+  if (chineseChars < 4) {
+    return { answer: TEMPLATE.A, tag: 'fixed', tagLabel: '无法匹配 → 模板A', needsAI: false };
   }
-  // 优先级4：问题明确的企业版功能性问题 → 模板D（已记录，跟进处理）
-  if (isEnterpriseFeatureQuestion(question)) {
-    return { answer: TEMPLATE.D, tag: 'fixed', tagLabel: '企业版功能问题 → 模板D' };
-  }
-  // 兜底：模板A（问题不明确 / 疑似个人版 / 外文）
-  return { answer: TEMPLATE.A, tag: 'fixed', tagLabel: '无法匹配 → 模板A' };
-}
-
-function matchKnowledge(question, knowledge) {
-  // 提取问题中的有效关键词（长度>=2，去除标点）
-  const kws = question
-    .replace(/[？?！!。，,、\s「」【】《》""''（）()]/g, ' ')
-    .split(' ')
-    .map(w => w.trim())
-    .filter(w => w.length >= 2);
-
-  if (kws.length === 0) return null;
-
-  // 按功能块切割知识库（每个以 emoji 开头的功能标题为一块）
-  // 支持「如何」「怎么」「怎样」「功能」段落切割
-  const sections = knowledge.split(/\n(?=[💹🗂🔂🖼🎏📊➕♾️🌍📔🔳✍️🔲➖📄🔢🔚🔄🌍⌨🔏📅📇🔝👨‍🎨📑🆕✍️⌨️📁🤝〰📶➕🆎↪🔬🧭☂🚩📃🔗🔁📣🌍📞⬇📊⬇🌟◻]|如何|怎么|怎样)/);
-
-  let best = 0, bestSec = null;
-  for (const sec of sections) {
-    if (!sec.trim()) continue;
-    // 计算匹配分：每个关键词在该段出现1次记1分，出现在标题行额外+1
-    let score = 0;
-    const lines = sec.split('\n');
-    const titleLine = lines[0] || '';
-    for (const kw of kws) {
-      if (sec.includes(kw)) {
-        score += 1;
-        if (titleLine.includes(kw)) score += 1; // 标题命中加权
-      }
-    }
-    if (score > best) { best = score; bestSec = sec; }
-  }
-
-  // 阈值：至少1个关键词命中（问题越具体阈值越低）
-  const threshold = kws.length >= 4 ? 2 : 1;
-  if (best >= threshold && bestSec) {
-    // 提取功能段落的核心内容（去掉多余空行，截取前600字）
-    const trimmed = bestSec
-      .split('\n')
-      .filter(l => l.trim())
-      .join('\n')
-      .substring(0, 600);
-    return `您好！关于您反馈的问题，以下是相关功能指引：\n\n${trimmed}`;
-  }
-  return null;
+  // 其余：标记为需要 AI 生成回复（answer 留空占位，由 AI 在第二阶段填充）
+  return { answer: '', tag: 'ai', tagLabel: '⏳ 待AI生成回复', needsAI: true };
 }
 
 // ===== 企微通知去重（修复问题6：同一天同批次只推一次）=====
@@ -681,23 +624,55 @@ async function main() {
   });
   log(`📝 ${targetDate} 待回复：${unreplied.length} 条（共扫描 ${all.length} 条）`);
 
-  // 4. 生成回复建议
+  // 4. 第一阶段：关键词命中生成回复，其余标记 needsAI
   const items = unreplied.map(item => {
-    const { answer, tag, tagLabel } = generateReply(item.question, knowledge);
-    return { ...item, answer, tag, tagLabel };
+    const { answer, tag, tagLabel, needsAI } = generateReply(item.question);
+    return { ...item, answer, tag, tagLabel, needsAI };
   });
 
-  // 5. 生成 HTML
+  const aiNeeded = items.filter(i => i.needsAI);
+  const fixedCount = items.length - aiNeeded.length;
+  log(`📝 关键词命中 ${fixedCount} 条，需AI生成 ${aiNeeded.length} 条`);
+
+  // 输出待 AI 回复的问题到 pending_ai.json（供 AI 读取并填充）
+  const pendingFile = path.join(__dirname, 'output', 'pending_ai.json');
+  fs.mkdirSync(path.join(__dirname, 'output'), { recursive: true });
+  fs.writeFileSync(pendingFile, JSON.stringify(items, null, 2), 'utf8');
+  log(`✅ 问题列表已输出：${pendingFile}`);
+  log(`⏳ 等待 AI 填充 ${aiNeeded.length} 条回复后，调用 node run.js --build 生成 HTML`);
+
+  // 返回数据，供外部（AI）使用
+  return { items, targetDate, pendingFile, aiNeededCount: aiNeeded.length };
+}
+
+// ===== 第二阶段：从 AI 填充后的 JSON 生成 HTML 并推送 =====
+async function buildAndNotify(targetDate) {
+  const pendingFile = path.join(__dirname, 'output', 'pending_ai.json');
+  if (!fs.existsSync(pendingFile)) {
+    log('❌ 未找到 pending_ai.json，请先运行 node run.js 抓取问题');
+    process.exit(1);
+  }
+
+  const items = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+  const empty = items.filter(i => !i.answer || i.answer.trim() === '');
+  if (empty.length > 0) {
+    warn(`⚠️ 还有 ${empty.length} 条回复为空，请先填充完毕`);
+  }
+
+  // 确保静态服务
+  await ensureStaticServer();
+
+  // 生成 HTML
   fs.mkdirSync(path.join(__dirname, 'output'), { recursive: true });
   const html = buildHTML(items, targetDate);
   fs.writeFileSync(CONFIG.HTML_OUT, html, 'utf8');
   log(`✅ HTML 工具已生成：${CONFIG.HTML_OUT}`);
 
-  // 6. 快照
+  // 快照
   const snap = path.join(CONFIG.MEMORY_DIR, `snapshot_${targetDate}.json`);
   fs.writeFileSync(snap, JSON.stringify(items, null, 2), 'utf8');
 
-  // 7. 企微通知（去重：同一天只推一次，修复问题6）
+  // 企微通知（去重）
   const staticUrl = `http://localhost:${CONFIG.STATIC_PORT}/output/reply_tool.html`;
   if (items.length > 0) {
     if (hasNotifiedToday(targetDate)) {
@@ -715,7 +690,15 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(e => { console.error('❌', e.message); process.exit(1); });
+  const args = process.argv.slice(2);
+  if (args[0] === '--build') {
+    // 第二阶段：AI 填充完毕后，生成 HTML 并推送
+    const targetDate = args[1] || (() => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+    buildAndNotify(targetDate).catch(e => { console.error('❌', e.message); process.exit(1); });
+  } else {
+    // 第一阶段：抓取 + 关键词预处理
+    main().catch(e => { console.error('❌', e.message); process.exit(1); });
+  }
 }
 
-module.exports = { main, getKnowledge, generateReply, buildHTML };
+module.exports = { main, buildAndNotify, getKnowledge, generateReply, buildHTML };
