@@ -35,6 +35,13 @@ const CONFIG = {
     { id: 'DTGlwcndCZmNmZEJW', url: 'https://docs.qq.com/doc/DTGlwcndCZmNmZEJW', title: '腾讯文档企业版-智能表格使用手册' },
     { id: 'DTHRVYlpvYUJLalVX', url: 'https://docs.qq.com/aio/DTHRVYlpvYUJLalVX', title: '企业版(私有化)更新日志2025' },
     { id: 'DTHZpWHJjdEFyYm1n', url: 'https://docs.qq.com/aio/DTHZpWHJjdEFyYm1n', title: '腾讯文档企业版AI能力简介' },
+    { id: 'DTFZXc3prbWRleG9V', url: 'https://docs.qq.com/doc/DTFZXc3prbWRleG9V', title: '智能表格使用常见FAQ' },
+    { id: 'DTGRqVk9pcExBWGlD', url: 'https://docs.qq.com/aio/DTGRqVk9pcExBWGlD', title: '企业版私有化-文档权限说明' },
+    { id: 'DTGt5S1d3VkFKWWpa', url: 'https://docs.qq.com/aio/DTGt5S1d3VkFKWWpa', title: '企业版文档：如何设置共享空间权限' },
+    { id: 'DTGpudHRSaGNKaWJp', url: 'https://docs.qq.com/aio/DTGpudHRSaGNKaWJp', title: '企业版上传导入格式及大小说明' },
+    { id: 'DTGtlbXpqYmppYXFG', url: 'https://docs.qq.com/doc/DTGtlbXpqYmppYXFG', title: '收集表提醒说明' },
+    { id: 'DTHZkdERneHNmR1dX', url: 'https://docs.qq.com/doc/DTHZkdERneHNmR1dX', title: '快捷键说明（Mac）' },
+    { id: 'DTE5XeHJSWGxLZmxn', url: 'https://docs.qq.com/doc/DTE5XeHJSWGxLZmxn', title: '快捷键说明（Windows）' },
   ],
   KNOWLEDGE_REFRESH_DAYS: 90,
 
