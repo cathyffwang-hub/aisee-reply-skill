@@ -3,10 +3,11 @@
  * AiSee 反馈自动回复工具 - 主执行脚本
  *
  * 功能：
+ * 0. 自动检查 Git 远端更新，有新版本则自动 pull
  * 1. 检查知识库是否需要刷新（超90天自动重新获取）
  * 2. iOA 登录状态检查（浏览器已有 session 直接跳过，无需手机确认）
  * 3. 抓取昨日所有「待首次回复」的反馈
- * 4. 按模板A/B/C + 功能指引精准匹配回复（优先知识库）
+ * 4. 关键词命中模板B/C/A，其余交AI生成回复
  * 5. 生成可编辑回复工具网页（含 localStorage 落盘）
  * 6. 确保静态服务从 skill 目录启动（自动检查并修正）
  * 7. 企业微信通知（去重：同一天只推一次）
@@ -16,9 +17,31 @@ const fs   = require('fs');
 const path = require('path');
 const http  = require('http');
 const https = require('https');
-const { exec, spawn } = require('child_process');
+const { exec, spawn, execSync } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
+
+// ===== 自动更新检查 =====
+function autoUpdate() {
+  try {
+    const skillDir = __dirname;
+    // 检查是否是 git 仓库
+    if (!fs.existsSync(path.join(skillDir, '.git'))) return;
+    // fetch 远端（静默，超时5秒）
+    execSync('git fetch origin --quiet', { cwd: skillDir, timeout: 5000, stdio: 'ignore' });
+    // 比较本地和远端
+    const local = execSync('git rev-parse HEAD', { cwd: skillDir, timeout: 3000 }).toString().trim();
+    const remote = execSync('git rev-parse origin/main', { cwd: skillDir, timeout: 3000 }).toString().trim();
+    if (local !== remote) {
+      console.log('[AutoUpdate] 检测到新版本，自动更新中...');
+      execSync('git pull origin main --quiet', { cwd: skillDir, timeout: 15000, stdio: 'inherit' });
+      console.log('[AutoUpdate] ✅ 已更新到最新版本');
+    }
+  } catch(e) {
+    // 更新失败不影响主流程
+  }
+}
+autoUpdate();
 
 // ===== 配置（按需修改）=====
 const CONFIG = {
