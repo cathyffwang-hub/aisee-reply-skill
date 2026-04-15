@@ -312,7 +312,7 @@ async function fetchFeedback() {
   await runBrowser(`open "${CONFIG.AISEE_LIST}"`);
   await new Promise(r => setTimeout(r, 2000));
 
-  const raw = await runBrowser(`eval "JSON.stringify(Array.from(document.querySelectorAll('table tbody tr[data-row-key]')).map(tr=>{const fid=tr.getAttribute('data-row-key');const q=(tr.querySelector('td:nth-child(2) > div:first-child')||{}).innerText||'';const st=(tr.querySelector('td:nth-child(4)')||{}).innerText||'';const t=(tr.querySelector('td:nth-child(6)')||{}).innerText||'';return{fid,question:q.trim().split('\\n')[0],status:st.trim(),time:t.trim()}}).filter(i=>i.fid&&i.question))"`);
+  const raw = await runBrowser(`eval "JSON.stringify(Array.from(document.querySelectorAll('table tbody tr[data-row-key]')).map(tr=>{const fid=tr.getAttribute('data-row-key');const q=(tr.querySelector('td:nth-child(2) > div:first-child')||{}).innerText||'';const st=(tr.querySelector('td:nth-child(5)')||{}).innerText||'';const t=(tr.querySelector('td:nth-child(6)')||{}).innerText||'';return{fid,question:q.trim().split('\\n')[0],status:st.trim(),time:t.trim()}}).filter(i=>i.fid&&i.question))"`);
 
   try {
     let parsed = JSON.parse(raw);
@@ -636,11 +636,11 @@ async function main() {
     log('❌ 登录失败，退出'); process.exit(1);
   }
 
-  // 3. 抓取所有未回复的反馈（不限日期）
+  // 3. 抓取所有未回复的反馈（只要「待首次回复」的）
   const all = await fetchFeedback();
   const unreplied = all.filter(item => {
-    const notReplied = !item.status.includes('已回复') || process.env.DEBUG_ALL === '1';
-    return notReplied;
+    if (process.env.DEBUG_ALL === '1') return true;
+    return item.status === '待首次回复';
   });
   log(`📝 待回复：${unreplied.length} 条（共扫描 ${all.length} 条）`);
 
