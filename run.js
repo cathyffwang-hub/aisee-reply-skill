@@ -5,8 +5,8 @@
  * 功能：
  * 0. 自动检查 Git 远端更新，有新版本则自动 pull
  * 1. 检查知识库是否需要刷新（超90天自动重新获取）
- * 2. iOA 登录状态检查（浏览器已有 session 直接跳过，无需手机确认）
- * 3. 抓取昨日所有「待首次回复」的反馈
+ * 2. iOA 登录（使用持久化 Chrome profile，首次登录后无需再验证）
+ * 3. 抓取网站上所有未回复的反馈（不限日期）
  * 4. 关键词命中模板B/C/A，其余交AI生成回复
  * 5. 生成可编辑回复工具网页（含 localStorage 落盘）
  * 6. 确保静态服务从 skill 目录启动（自动检查并修正）
@@ -72,6 +72,8 @@ const CONFIG = {
   AISEE_DETAIL: 'https://aisee.woa.com/admin/p-23ba9e1e-7bfd-3d15-806d-31f9b3e3a531/b-a9ba8a76-deb1-328c-af3b-2fc7c54ac4f6/p5sr49xhf1/operate/aiseeDetail',
 
   BROWSER     : '/Users/cathy/.workbuddy/agent-browser-local/node_modules/.bin/agent-browser',
+  // 持久化 Chrome profile 目录：首次 iOA 登录后 cookie 会保存在这里，后续无需再验证
+  BROWSER_PROFILE: path.join(__dirname, '.browser-profile'),
   MCPORTER    : 'mcporter',
 
   HTML_OUT    : path.join(__dirname, 'output', 'reply_tool.html'),
@@ -109,7 +111,7 @@ const log  = msg => console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
 const warn = msg => console.warn(`[WARN] ${msg}`);
 
 async function runBrowser(cmd, timeout = 30000) {
-  const { stdout } = await execAsync(`${CONFIG.BROWSER} ${cmd}`, { timeout });
+  const { stdout } = await execAsync(`${CONFIG.BROWSER} --profile "${CONFIG.BROWSER_PROFILE}" ${cmd}`, { timeout });
   return stdout.trim();
 }
 
@@ -616,12 +618,11 @@ async function sendWecom(url, count, targetDate) {
 // ===== 主流程 =====
 async function main() {
   const args = process.argv.slice(2);
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const targetDate = args[0] || yesterday.toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const targetDate = args[0] || today;  // 仅用于通知和HTML标题，不用于数据过滤
 
   log('🚀 AiSee 反馈自动回复工具启动');
-  log(`📅 目标日期：${targetDate}`);
+  log(`📅 运行日期：${targetDate}（抓取所有未回复问题）`);
 
   // 0. 确保静态服务从 skill 目录启动（修复问题2+4）
   await ensureStaticServer();
@@ -635,17 +636,13 @@ async function main() {
     log('❌ 登录失败，退出'); process.exit(1);
   }
 
-  // 3. 抓取反馈，严格过滤：
-  //    - 必须是 targetDate 当天提交（time 字段前10位 === targetDate）
-  //    - 状态不含「已回复」（除非 DEBUG_ALL=1）
+  // 3. 抓取所有未回复的反馈（不限日期）
   const all = await fetchFeedback();
   const unreplied = all.filter(item => {
-    const itemDate = (item.time || '').slice(0, 10);
-    const dateMatch = itemDate === targetDate;
     const notReplied = !item.status.includes('已回复') || process.env.DEBUG_ALL === '1';
-    return dateMatch && notReplied;
+    return notReplied;
   });
-  log(`📝 ${targetDate} 待回复：${unreplied.length} 条（共扫描 ${all.length} 条）`);
+  log(`📝 待回复：${unreplied.length} 条（共扫描 ${all.length} 条）`);
 
   // 4. 第一阶段：关键词命中生成回复，其余标记 needsAI
   const items = unreplied.map(item => {
