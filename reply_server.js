@@ -94,67 +94,58 @@ async function doReply(fid, answer, needsTag) {
 }
 
 // ===== 给反馈打「企业版问题」标签 =====
-// 页面结构：业务信息 > 业务标签 字段，是一个 Ant Design 多选 Select
-// 操作流程：点击标签输入框 → 等待下拉选项 → 点击「企业版问题」选项 → 点击页面空白处关闭
+// AiSee 的业务标签字段是 MUI Autocomplete 组件（非 Ant Design）
+// 关键发现：
+//   1. MUI Autocomplete 必须用真实 click 命令触发展开（纯 JS .click() 无效）
+//   2. 下拉 popper 在 body 下，class 含 MuiAutocomplete-popper
+//   3. 选择选项时必须 dispatch 完整的 mousedown+mouseup+click 事件序列，
+//      因为 MUI 的监听器绑在 mousedown 上，光 .click() 会被忽略
+//   4. 验证 chip 要在业务标签字段所在的 FormControl 容器内查找，避免误读其他字段的 chip
 async function setEnterpriseTag() {
-  console.log('[tag] 尝试给反馈打「企业版问题」标签...');
+  console.log('[tag] 给反馈打「企业版问题」标签...');
 
-  // 方案：用 JS 直接查找包含「业务标签」文字的 label，定位到相邻的输入框
-  const jsClick = `
-(function(){
-  // 查找所有包含"业务标签"的元素
-  const labels = Array.from(document.querySelectorAll('*')).filter(e => {
-    const t = e.textContent || '';
-    return t.trim() === '业务标签' || t.trim().startsWith('业务标签') && t.length < 20;
-  });
-  if (!labels.length) return JSON.stringify({ok:false, err:'未找到业务标签字段'});
-  // 取最内层的那个 label
-  const label = labels.find(l => l.children.length === 0) || labels[0];
-  // 向上找到表单行容器，再向下找到 select 输入框
-  let row = label;
-  for (let i = 0; i < 6 && row; i++) {
-    const input = row.querySelector && row.querySelector('.ant-select-selection-search-input, input[role="combobox"], .ant-select');
-    if (input) {
-      input.scrollIntoView({block:'center'});
-      input.click && input.click();
-      // 如果是外层 select 容器，还要点击一下内部 input 聚焦
-      const innerInput = input.querySelector ? input.querySelector('.ant-select-selection-search-input, input') : null;
-      if (innerInput) innerInput.focus();
-      return JSON.stringify({ok:true});
+  try {
+    // 1. 滚到业务标签字段位置并点击（触发 MUI Autocomplete 展开）
+    await browser(`eval "var e=document.querySelector('input[placeholder=\\"业务标签\\"]');if(e)e.scrollIntoView({block:'center'})"`);
+    await delay(400);
+    await browser(`click 'input[placeholder="业务标签"]'`);
+
+    // 2. 轮询等 popper 出现（最多 6 秒）
+    let popperFound = false;
+    for (let i = 0; i < 12; i++) {
+      await delay(500);
+      const check = await browser(`eval "document.querySelector('.MuiAutocomplete-popper')?'yes':'no'"`);
+      if (check.includes('yes')) { popperFound = true; break; }
     }
-    row = row.parentElement;
+    if (!popperFound) {
+      console.warn('[tag] popper 未出现，跳过打标签');
+      return;
+    }
+
+    // 3. 用完整鼠标事件序列点击「企业版问题」选项（关键！MUI 监听 mousedown）
+    const pickJs = `(function(){var p=document.querySelector(".MuiAutocomplete-popper");if(!p)return JSON.stringify({ok:false,err:"no popper"});var opts=Array.from(p.querySelectorAll("li,[role=option]"));var t=opts.find(function(o){return o.textContent.trim()==="企业版问题"});if(!t)return JSON.stringify({ok:false,err:"no option",all:opts.map(function(o){return o.textContent.trim()})});["mousedown","mouseup","click"].forEach(function(type){t.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window,button:0}))});return JSON.stringify({ok:true})})()`;
+    const pickResult = await browser(`eval "${pickJs.replace(/"/g, '\\"')}"`);
+    console.log('[tag] 选择结果:', pickResult);
+
+    await delay(600);
+
+    // 4. 验证：在业务标签字段所在的 FormControl 容器内查找 chip
+    const verifyJs = `(function(){var input=document.querySelector("input[placeholder=\\"业务标签\\"]");if(!input)return"no input";var container=input.closest(".MuiFormControl-root");var chips=Array.from(container.querySelectorAll(".MuiChip-root")).map(function(c){return c.textContent.trim()});return chips.some(function(t){return t==="企业版问题"})?"ok":JSON.stringify(chips)})()`;
+    const verifyResult = await browser(`eval "${verifyJs.replace(/"/g, '\\"')}"`);
+
+    // 5. 按 Escape 关闭下拉
+    await browser(`press Escape`);
+    await delay(300);
+
+    if (verifyResult.includes('ok')) {
+      console.log('[tag] ✅ 「企业版问题」标签已添加');
+    } else {
+      console.warn('[tag] ⚠️ 验证未通过:', verifyResult);
+    }
+  } catch(e) {
+    console.error('[tag] 打标签失败:', e.message);
+    // 标签失败不影响主流程
   }
-  return JSON.stringify({ok:false, err:'找到标签字段但未定位到输入框'});
-})()
-`.replace(/\s+/g, ' ').trim();
-
-  const r1 = await browser(`eval "${jsClick.replace(/"/g, '\\"')}"`);
-  console.log('[tag] 点击业务标签输入框:', r1);
-  await delay(800);
-
-  // 等下拉选项出现后，点击「企业版问题」选项
-  const jsPickOption = `
-(function(){
-  // 查找下拉选项中的「企业版问题」
-  const opts = Array.from(document.querySelectorAll('.ant-select-item-option, .ant-select-dropdown [role="option"], [class*="select-item"]'));
-  const target = opts.find(o => (o.textContent || '').trim() === '企业版问题' || (o.textContent || '').includes('企业版问题'));
-  if (target) {
-    target.click();
-    return JSON.stringify({ok:true, text:target.textContent.trim()});
-  }
-  return JSON.stringify({ok:false, err:'未找到「企业版问题」选项', opts: opts.map(o=>o.textContent.trim()).slice(0,10)});
-})()
-`.replace(/\s+/g, ' ').trim();
-
-  const r2 = await browser(`eval "${jsPickOption.replace(/"/g, '\\"')}"`);
-  console.log('[tag] 选择「企业版问题」:', r2);
-  await delay(500);
-
-  // 点击页面空白处关闭下拉
-  await browser(`eval "document.body.click()"`);
-  await delay(300);
-
-  console.log('[tag] ✅ 标签已设置');
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
