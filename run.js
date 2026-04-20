@@ -87,6 +87,10 @@ const CONFIG = {
   // 多人用逗号分隔，如 'userid1,userid2'；空字符串则不 @
   WECOM_MENTION_USERID: process.env.WECOM_MENTION_USERID || 'cathyfwang',
 
+  // 企微通知中使用的称呼（默认取系统用户名，可覆盖为 '小明'、'王老师' 等）
+  // 支持环境变量 WECOM_GREETING_NAME 覆盖
+  WECOM_GREETING_NAME: process.env.WECOM_GREETING_NAME || process.env.USER || '同事',
+
   // 企微通知去重文件路径
   NOTIFY_LOCK_FILE: path.join(__dirname, 'memory', 'notify_lock.json'),
 };
@@ -329,22 +333,26 @@ async function fetchFeedback() {
 
 // ===== 生成回复（分两阶段：第一阶段关键词命中，第二阶段交AI生成）=====
 // 第一阶段：关键词明确命中 → 直接使用模板；其余标记 needsAI
+// needsTag：问题中含「企业版」关键词，回复时需给反馈打「企业版问题」标签
 function generateReply(question) {
+  // 是否需要打企业版标签
+  const needsTag = question.includes('企业版');
+
   // 优先级1：模板C（企微相关）
   if (KEYWORDS_C.some(k => question.includes(k))) {
-    return { answer: TEMPLATE.C, tag: 'fixed', tagLabel: '企微问题 → 模板C', needsAI: false };
+    return { answer: TEMPLATE.C, tag: 'fixed', tagLabel: '企微问题 → 模板C', needsAI: false, needsTag };
   }
   // 优先级2：模板B（会员/发票）
   if (KEYWORDS_B.some(k => question.includes(k))) {
-    return { answer: TEMPLATE.B, tag: 'fixed', tagLabel: '会员/发票 → 模板B', needsAI: false };
+    return { answer: TEMPLATE.B, tag: 'fixed', tagLabel: '会员/发票 → 模板B', needsAI: false, needsTag };
   }
   // 优先级3：问题不明确 / 外文 → 模板A
   const chineseChars = (question.match(/[\u4e00-\u9fa5]/g) || []).length;
   if (chineseChars < 4) {
-    return { answer: TEMPLATE.A, tag: 'fixed', tagLabel: '无法匹配 → 模板A', needsAI: false };
+    return { answer: TEMPLATE.A, tag: 'fixed', tagLabel: '无法匹配 → 模板A', needsAI: false, needsTag };
   }
   // 其余：标记为需要 AI 生成回复（answer 留空占位，由 AI 在第二阶段填充）
-  return { answer: '', tag: 'ai', tagLabel: '⏳ 待AI生成回复', needsAI: true };
+  return { answer: '', tag: 'ai', tagLabel: '⏳ 待AI生成回复', needsAI: true, needsTag };
 }
 
 // ===== 企微通知去重（修复问题6：同一天同批次只推一次）=====
@@ -434,6 +442,12 @@ function buildHTML(items, targetDate) {
   .empty{text-align:center;padding:60px 20px;color:var(--sub)}
   .empty .ei{font-size:48px;margin-bottom:16px}
   .empty h3{font-size:18px;margin-bottom:8px}
+  .batch-bar{background:linear-gradient(135deg,#fff,#fafbff);border:2px dashed var(--purple);border-radius:14px;padding:14px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .btn-all{background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(234,88,12,.35);transition:all .2s;white-space:nowrap}
+  .btn-all:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 22px rgba(234,88,12,.48)}
+  .btn-all:disabled{opacity:.5;cursor:not-allowed;background:#94a3b8;box-shadow:none;transform:none}
+  .batch-hint{font-size:12px;color:var(--sub);flex:1;min-width:200px}
+  .tag-ent{display:inline-flex;align-items:center;gap:3px;background:#fef3c7;color:#b45309;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;margin-left:6px;border:1px solid #fde68a}
 </style>
 </head>
 <body>
@@ -456,6 +470,10 @@ function buildHTML(items, targetDate) {
 <div class="prog-wrap">
   <div class="prog-bar"><div class="prog-fill" id="prog"></div></div>
   <div class="prog-lbl" id="prog-lbl">0 / - 已回复</div>
+</div>
+<div class="batch-bar">
+  <button class="btn-all" id="btn-all" onclick="replyAll()">🚀 一键全部回复（剩余 <span id="remain">0</span> 条）</button>
+  <span class="batch-hint">确认所有回复内容无误后，点击此按钮将依次提交所有「待回复」状态的条目</span>
 </div>
 <div class="cards" id="cards"></div>
 <div class="toast" id="toast"><span id="ti">✅</span><span id="tm"></span></div>
@@ -512,6 +530,7 @@ function render(){
         <div class="qb">
           <div class="qt">\${esc(item.question)}</div>
           <span class="tag tag-\${item.tag}">\${esc(item.tagLabel)}</span>
+          \${item.needsTag?'<span class="tag-ent">🏷️ 将自动打标签：企业版问题</span>':''}
         </div>
         \${statusMap[s.st]}
       </div>
@@ -533,12 +552,15 @@ function uc(i){const ta=document.getElementById('ed-'+i),cc=document.getElementB
 
 function stats(){
   const done=states.filter(s=>s.st==='done').length,err=states.filter(s=>s.st==='error').length;
+  const remain=data.length-done;
   document.getElementById('s-total').textContent=data.length;
   document.getElementById('s-done').textContent=done;
-  document.getElementById('s-pending').textContent=data.length-done;
+  document.getElementById('s-pending').textContent=remain;
   document.getElementById('s-err').textContent=err;
   document.getElementById('prog').style.width=(data.length?done/data.length*100:0)+'%';
   document.getElementById('prog-lbl').textContent=done+' / '+data.length+' 已回复';
+  const rEl=document.getElementById('remain');if(rEl)rEl.textContent=remain;
+  const btnAll=document.getElementById('btn-all');if(btnAll){btnAll.disabled=(remain===0);if(remain===0){btnAll.textContent='🎉 全部已回复';}}
 }
 
 async function go(i){
@@ -547,11 +569,40 @@ async function go(i){
   if(!ans){toast('回复内容不能为空','w');return;}
   states[i]={st:'sending',err:''};render();
   try{
-    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fid:data[i].fid,answer:ans,index:i+1})});
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fid:data[i].fid,answer:ans,index:i+1,needsTag:!!data[i].needsTag})});
     const j=await r.json();
     if(j.ok){states[i]={st:'done',err:''};saveStates();toast('第'+(i+1)+'条已成功回复 ✅','ok');}
     else throw new Error(j.error||'服务器返回失败');
   }catch(e){states[i]={st:'error',err:e.message};saveStates();toast('第'+(i+1)+'条失败：'+e.message,'e');}
+  render();
+}
+
+// ===== 一键全部回复：依次执行所有「待回复」或「失败」状态的条目 =====
+let allRunning=false;
+async function replyAll(){
+  if(allRunning)return;
+  const targets=[];
+  for(let i=0;i<data.length;i++){
+    if(states[i].st!=='done'&&states[i].st!=='sending')targets.push(i);
+  }
+  if(targets.length===0){toast('没有待回复的条目','w');return;}
+  if(!confirm('即将依次回复 '+targets.length+' 条反馈，过程中请勿关闭页面。确认继续？'))return;
+  allRunning=true;
+  const btnAll=document.getElementById('btn-all');
+  btnAll.disabled=true;btnAll.textContent='⏳ 正在批量回复 0/'+targets.length;
+  let ok=0,fail=0;
+  for(let k=0;k<targets.length;k++){
+    const i=targets[k];
+    btnAll.textContent='⏳ 正在批量回复 '+(k+1)+'/'+targets.length;
+    try{
+      await go(i);
+      if(states[i].st==='done')ok++;else fail++;
+    }catch(e){fail++;}
+    // 每条之间等 1 秒，避免服务端压力
+    await new Promise(r=>setTimeout(r,1000));
+  }
+  allRunning=false;
+  toast('批量完成：成功 '+ok+' 条，失败 '+fail+' 条',fail?'w':'ok');
   render();
 }
 
@@ -583,16 +634,29 @@ async function sendWecom(url, count, targetDate) {
     ? CONFIG.WECOM_MENTION_USERID.split(',').map(id => `<@${id.trim()}>`).join(' ') + '\n\n'
     : '';
 
+  // 随机暖心开场白（动态称呼，支持每个同事）
+  const name = CONFIG.WECOM_GREETING_NAME;
+  const hour = new Date().getHours();
+  const timeGreet = hour < 11 ? '早上好' : (hour < 14 ? '中午好' : (hour < 18 ? '下午好' : '晚上好'));
+  const openers = [
+    `🌸 **${name} ${timeGreet}！今天也是元气满满的一天，每一条回复都是对用户最好的照见～** 💪`,
+    `☀️ **${name} ${timeGreet}！AiSee 小助手已为你整理好今日待办，一起高效开启一天吧～** ✨`,
+    `🎯 **${name} ${timeGreet}！用户的每一条反馈都值得被温柔对待，我们来搞定它们～** 💖`,
+    `🍀 **${name} ${timeGreet}！今天也要做被用户认可的客服明星哦～** 🌟`,
+    `🌈 **${name} ${timeGreet}！AI 已经把初稿备好，你只需要优雅地点确认～** 🫶`,
+  ];
+  const opener = openers[Math.floor(Math.random() * openers.length)];
+
   const body = JSON.stringify({
     msgtype: 'markdown',
     markdown: {
       content:
         mentionStr +
-        `🌸 **菲菲公主早上好！今天也是元气满满的一天，每一条回复都是对用户最好的照见～** 💪\n\n` +
+        opener + '\n\n' +
         `📋 **${targetDate} AiSee 反馈待回复清单已就绪**\n\n` +
         `> 共有 **${count}** 条用户反馈等待回复，AI 已根据腾讯文档功能指引准备好了答案 ✨\n\n` +
         `🔗 [点击打开回复工具](${url})\n\n` +
-        `_改完答案点「确认并回复」就会自动提交，刷新不丢状态哦 🎯_`
+        `_改完答案可点「确认并回复」逐条提交，也可点「🚀 一键全部回复」批量搞定～ 🎯_`
     }
   });
 
@@ -646,8 +710,8 @@ async function main() {
 
   // 4. 第一阶段：关键词命中生成回复，其余标记 needsAI
   const items = unreplied.map(item => {
-    const { answer, tag, tagLabel, needsAI } = generateReply(item.question);
-    return { ...item, answer, tag, tagLabel, needsAI };
+    const { answer, tag, tagLabel, needsAI, needsTag } = generateReply(item.question);
+    return { ...item, answer, tag, tagLabel, needsAI, needsTag };
   });
 
   const aiNeeded = items.filter(i => i.needsAI);
