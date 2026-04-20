@@ -442,7 +442,7 @@ function buildHTML(items, targetDate) {
   .empty{text-align:center;padding:60px 20px;color:var(--sub)}
   .empty .ei{font-size:48px;margin-bottom:16px}
   .empty h3{font-size:18px;margin-bottom:8px}
-  .batch-bar{background:linear-gradient(135deg,#fff,#fafbff);border:2px dashed var(--purple);border-radius:14px;padding:14px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .batch-bar{background:linear-gradient(135deg,#fff,#fafbff);border:2px dashed var(--purple);border-radius:14px;padding:16px 22px;margin-top:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;position:sticky;bottom:16px;box-shadow:0 -4px 24px rgba(102,126,234,.18);z-index:10}
   .btn-all{background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(234,88,12,.35);transition:all .2s;white-space:nowrap}
   .btn-all:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 22px rgba(234,88,12,.48)}
   .btn-all:disabled{opacity:.5;cursor:not-allowed;background:#94a3b8;box-shadow:none;transform:none}
@@ -471,11 +471,11 @@ function buildHTML(items, targetDate) {
   <div class="prog-bar"><div class="prog-fill" id="prog"></div></div>
   <div class="prog-lbl" id="prog-lbl">0 / - 已回复</div>
 </div>
+<div class="cards" id="cards"></div>
 <div class="batch-bar">
   <button class="btn-all" id="btn-all" onclick="replyAll()">🚀 一键全部回复（剩余 <span id="remain">0</span> 条）</button>
   <span class="batch-hint">确认所有回复内容无误后，点击此按钮将依次提交所有「待回复」状态的条目</span>
 </div>
-<div class="cards" id="cards"></div>
 <div class="toast" id="toast"><span id="ti">✅</span><span id="tm"></span></div>
 <script>
 const API='http://localhost:${port}/reply';
