@@ -6,6 +6,15 @@
 
 ---
 
+## 🌐 在线预览（不需要本地安装）
+
+👉 **[点击查看工具页效果](https://cathyffwang-hub.github.io/aisee-reply-skill/)**
+
+云端静态展示版，包含完整 UI 和交互效果，方便同事直观了解工具长什么样。
+数据为脱敏示例，**实际回复能力需按下方说明本地部署**。
+
+---
+
 ## 功能特性
 
 - ✅ 自动抓取指定日期的未回复用户反馈
@@ -123,8 +132,11 @@ aisee-reply-skill/
 ├── memory/
 │   ├── knowledge.md      # 功能指引知识库（90天刷新）
 │   └── snapshot_*.json  # 每日数据快照
-└── output/
-    └── reply_tool.html   # 生成的回复工具页
+├── output/
+│   └── reply_tool.html   # 本地生成的可交互回复工具页
+└── docs/                 # GitHub Pages 云端预览版
+    ├── index.html        # 脱敏静态演示页
+    └── build-preview.js  # 从 output/ 生成预览版的脚本
 ```
 
 ---

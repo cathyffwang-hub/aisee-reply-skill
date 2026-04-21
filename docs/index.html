@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiSee 反馈回复工具 · 云端演示</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--purple:#667eea;--purple-dark:#764ba2;--green:#059669;--orange:#d97706;--red:#dc2626;--bg:#f0f2f5;--card:#fff;--text:#1a1a2e;--sub:#64748b;--border:#e2e8f0;--r:12px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px}
+  .header{background:linear-gradient(135deg,var(--purple),var(--purple-dark));color:#fff;padding:22px 28px;border-radius:16px;margin-bottom:20px;box-shadow:0 8px 32px rgba(102,126,234,.28);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  .header h1{font-size:20px;font-weight:700;margin-bottom:4px}
+  .header p{font-size:13px;opacity:.82}
+  .srv{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#fbbf24;box-shadow:0 0 6px #fbbf24;transition:all .3s}
+  .dot.ok{background:#34d399;box-shadow:0 0 6px #34d399}
+  .dot.err{background:#f87171;box-shadow:0 0 6px #f87171}
+  .srv-lbl{font-size:12px;color:rgba(255,255,255,.8)}
+  .stats{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .stat{background:var(--card);border-radius:var(--r);padding:14px 20px;flex:1;min-width:110px;box-shadow:0 2px 8px rgba(0,0,0,.05);text-align:center}
+  .stat .n{font-size:26px;font-weight:800}
+  .stat .l{font-size:12px;color:var(--sub);margin-top:2px}
+  .prog-wrap{margin-bottom:20px}
+  .prog-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+  .prog-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--purple-dark));border-radius:3px;transition:width .5s;width:0}
+  .prog-lbl{font-size:12px;color:var(--sub);margin-top:6px;text-align:right}
+  .cards{display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--card);border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,.06);overflow:hidden;border:2px solid transparent;transition:border-color .2s,box-shadow .2s}
+  .card.sending{border-color:var(--purple);box-shadow:0 4px 20px rgba(102,126,234,.2)}
+  .card.done{border-color:#34d399;background:#f0fdf9}
+  .card.err-card{border-color:var(--red)}
+  .ch{display:flex;align-items:flex-start;gap:12px;padding:16px 20px 12px;border-bottom:1px solid var(--border)}
+  .card.done .ch{border-color:#bbf7d0}
+  .badge{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--purple-dark));color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .card.done .badge{background:linear-gradient(135deg,#34d399,#059669)}
+  .qb{flex:1}
+  .qt{font-size:14px;font-weight:600;line-height:1.55;margin-bottom:6px}
+  .tag{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600}
+  .tag-guide{background:#ede9fe;color:#6d28d9}
+  .tag-fixed{background:#fef3c7;color:#92400e}
+  .cs{flex-shrink:0;font-size:13px;font-weight:600}
+  .cs.p{color:var(--sub)}.cs.s{color:var(--purple)}.cs.d{color:var(--green)}.cs.e{color:var(--red)}
+  .cb{padding:14px 20px 16px}
+  .albl{font-size:11px;font-weight:600;color:var(--sub);letter-spacing:.8px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .hint{font-size:11px;color:#a78bfa;background:#ede9fe;padding:2px 8px;border-radius:10px;font-weight:400;letter-spacing:0}
+  textarea.ae{width:100%;min-height:100px;max-height:260px;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.7;color:var(--text);font-family:inherit;resize:vertical;background:#fafbff;outline:none;transition:border-color .2s,box-shadow .2s}
+  textarea.ae:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(102,126,234,.12);background:#fff}
+  .card.done textarea.ae{background:#f0fdf9;border-color:#bbf7d0;color:#475569;pointer-events:none;resize:none}
+  .cf{padding:0 20px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .cc{font-size:12px;color:var(--sub)}.cc.warn{color:var(--orange)}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,var(--purple),var(--purple-dark));color:#fff;border:none;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;box-shadow:0 3px 10px rgba(102,126,234,.35);white-space:nowrap}
+  .btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 18px rgba(102,126,234,.45)}
+  .btn:disabled{opacity:.6;cursor:not-allowed;transform:none;box-shadow:none}
+  .btn.sb{background:linear-gradient(135deg,#8b5cf6,#6d28d9);animation:pulse 1.2s infinite}
+  .btn.db{background:linear-gradient(135deg,#34d399,#059669);cursor:default;box-shadow:none}
+  .btn.rb{background:linear-gradient(135deg,#f87171,var(--red))}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
+  .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .errmsg{font-size:12px;color:var(--red);background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;margin-top:8px}
+  .toast{position:fixed;bottom:28px;right:24px;min-width:260px;max-width:360px;background:#1e293b;color:#fff;padding:12px 18px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:9999;opacity:0;transform:translateY(16px);transition:all .3s;display:flex;align-items:center;gap:10px}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .empty{text-align:center;padding:60px 20px;color:var(--sub)}
+  .empty .ei{font-size:48px;margin-bottom:16px}
+  .empty h3{font-size:18px;margin-bottom:8px}
+  .batch-bar{background:linear-gradient(135deg,#fff,#fafbff);border:2px dashed var(--purple);border-radius:14px;padding:16px 22px;margin-top:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;position:sticky;bottom:16px;box-shadow:0 -4px 24px rgba(102,126,234,.18);z-index:10}
+  .btn-all{background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(234,88,12,.35);transition:all .2s;white-space:nowrap}
+  .btn-all:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 22px rgba(234,88,12,.48)}
+  .btn-all:disabled{opacity:.5;cursor:not-allowed;background:#94a3b8;box-shadow:none;transform:none}
+  .batch-hint{font-size:12px;color:var(--sub);flex:1;min-width:200px}
+  .tag-ent{display:inline-flex;align-items:center;gap:3px;background:#fef3c7;color:#b45309;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;margin-left:6px;border:1px solid #fde68a}
+</style>
+</head>
+<body>
+
+<style>
+  .cloud-banner{background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:14px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:flex-start;gap:12px;box-shadow:0 4px 14px rgba(245,158,11,.18)}
+  .cloud-banner .ico{font-size:28px;flex-shrink:0}
+  .cloud-banner h3{font-size:15px;font-weight:800;color:#92400e;margin-bottom:4px}
+  .cloud-banner p{font-size:12.5px;color:#78350f;line-height:1.6}
+  .cloud-banner a{color:#b45309;font-weight:700;text-decoration:underline}
+</style>
+<div class="cloud-banner">
+  <div class="ico">☁️</div>
+  <div>
+    <h3>云端预览版 · Demo Only</h3>
+    <p>
+      这是 <b>aisee-reply-skill</b> 生成的工具页静态截图版本，用于向同事展示 UI 和交互逻辑。
+      数据为脱敏示例，<b>实际回复功能需在本地运行 skill</b> 才可使用。
+      完整能力（抓取反馈 / AI生成 / 一键回复 / 自动打标签）见
+      <a href="https://github.com/cathyffwang-hub/aisee-reply-skill" target="_blank">GitHub 仓库 README</a>。
+    </p>
+  </div>
+</div>
+
+<div class="header">
+  <div>
+    <h1>🎯 AiSee 反馈回复工具</h1>
+    <p>腾讯文档企业版 · 云端演示版 · <a href="https://github.com/cathyffwang-hub/aisee-reply-skill" style="color:#fff;text-decoration:underline">查看完整能力</a></p>
+  </div>
+  <div class="srv">
+    <div class="dot" id="dot"></div>
+    <span class="srv-lbl" id="srv-lbl">检查服务中...</span>
+  </div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="n" style="color:var(--purple)" id="s-total">-</div><div class="l">总条数</div></div>
+  <div class="stat"><div class="n" style="color:var(--green)" id="s-done">0</div><div class="l">已回复</div></div>
+  <div class="stat"><div class="n" style="color:var(--orange)" id="s-pending">-</div><div class="l">待回复</div></div>
+  <div class="stat"><div class="n" style="color:var(--red)" id="s-err">0</div><div class="l">失败</div></div>
+</div>
+<div class="prog-wrap">
+  <div class="prog-bar"><div class="prog-fill" id="prog"></div></div>
+  <div class="prog-lbl" id="prog-lbl">0 / - 已回复</div>
+</div>
+<div class="cards" id="cards"></div>
+<div class="batch-bar">
+  <button class="btn-all" id="btn-all" onclick="replyAll()">🚀 一键全部回复（剩余 <span id="remain">0</span> 条）</button>
+  <span class="batch-hint">确认所有回复内容无误后，点击此按钮将依次提交所有「待回复」状态的条目</span>
+</div>
+<div class="toast" id="toast"><span id="ti">✅</span><span id="tm"></span></div>
+<script>
+const API='';// 云端预览版，不调用任何后端
+const data=[{"fid":"demo-d61kc7sl","question":"企业版的在线表格可以保护列吗","status":"待首次回复","time":"2026-04-20 15:48:59","answer":"您好！关于企业版在线表格保护列的问题，在线表格支持针对某一范围单元格或整个工作表进行保护，具体操作：选中需要保护的列 → 顶部工具栏「保护」→ 设置权限范围（仅我可编辑、指定人可查看/编辑、所有协作者可编辑等）。保护成功后，保护区域的内容其他协作者无法修改或查看，且在电脑端和手机端均生效。如需按列保护多段数据，可重复操作设置多个保护范围。如有其他问题，欢迎继续反馈。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":true},{"fid":"demo-yusb8azz","question":"我文件都彻底删了 空间容量不释放呢？ 现在添加的文件又在原来空间容量上叠加 空间容量就没少过","status":"待首次回复","time":"2026-04-20 15:35:10","answer":"您好！关于文件删除后空间容量未释放的问题，腾讯文档的回收机制通常分为两步：1）文件删除后会先进入「回收站」，此时仍占用原账号的容量；2）彻底释放需要进入回收站「清空」或单条「彻底删除」，且系统可能存在短暂的同步延迟。建议您检查一下「回收站」是否还有残留文件，全部清空后等待几分钟再查看容量统计。若确认回收站为空但容量仍未释放，请提供账号信息和具体截图，我们会安排相关同学协助排查。如有其他问题，欢迎继续反馈。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":false},{"fid":"demo-9my14jxf","question":"设置表格范围是「仅我可编辑」，我把这个表格转让给了同事之后，为什么这个区域我不能编辑了？","status":"待首次回复","time":"2026-04-20 13:30:57","answer":"您好！关于您反馈的「仅我可编辑」区域在转让表格后无法编辑的问题：「仅我可编辑」的「我」指的是设置锁定时的操作人。当您将表格转让给同事后，表格所有者变更为对方，原锁定权限仍绑定在原设置者（即您）身上，所有权转移后可能导致原设置者也失去编辑权限。建议请新的表格所有者重新设置该区域的编辑权限：进入表格 → 选中该区域 → 右键「设置锁定」→ 解除或重新指定可编辑人员。如有其他问题，欢迎继续反馈。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":false},{"fid":"demo-lq4ba1gw","question":"智能表如何理解人员列类型？","status":"待首次回复","time":"2026-04-20 13:28:05","answer":"您好！关于智能表的「人员」列类型：人员列是智能表格中一种特殊列类型，用于从企业通讯录选择同事并关联到表格记录。应用场景非常丰富：1）筛选时支持选择「我」作为动态筛选条件，每个人打开表格可以只看到分配给自己的任务；2）自动化流程可基于人员列触发消息通知给对应成员；3）可结合权限设置，让记录的跟进人只能编辑自己负责的那些行。创建方式：点击列头下三角或右键列头 → 设置列类型 → 选择「人员」。如有其他问题，欢迎继续反馈。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":false}];
+
+// ===== localStorage 落盘（key 绑定当日 fid 指纹）=====
+const SKEY='aisee_'+btoa(data.map(d=>d.fid).join(',')).slice(0,16);
+function loadStates(){
+  try{
+    const s=JSON.parse(localStorage.getItem(SKEY)||'[]');
+    return data.map((_,i)=>{
+      const x=s[i];
+      if(!x)return{st:'pending',err:''};
+      return{st:x.st==='done'?'done':x.st==='error'?'error':'pending',err:x.err||''};
+    });
+  }catch(e){return data.map(()=>({st:'pending',err:''}));}
+}
+function saveStates(){try{localStorage.setItem(SKEY,JSON.stringify(states));}catch(e){}}
+const states=loadStates();
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function render(){
+  const c=document.getElementById('cards');
+  if(!data.length){
+    c.innerHTML='<div class="empty"><div class="ei">🎉</div><h3>暂无未回复问题</h3><p>所有反馈均已回复完毕！</p></div>';
+    ['s-total','s-pending'].forEach(id=>document.getElementById(id).textContent='0');
+    document.getElementById('prog-lbl').textContent='全部已回复';
+    return;
+  }
+  c.innerHTML='';
+  data.forEach((item,i)=>{
+    const s=states[i],isDone=s.st==='done',dis=s.st==='sending'||isDone;
+    const statusMap={
+      pending:'<span class="cs p">待回复</span>',
+      sending:'<span class="cs s"><span class="spin" style="display:inline-block;vertical-align:middle;margin-right:4px"></span>回复中...</span>',
+      done:'<span class="cs d">✅ 已回复</span>',
+      error:'<span class="cs e">❌ 失败</span>'
+    };
+    const btnMap={
+      pending:'<button class="btn" onclick="go('+i+')">✓ 确认并回复</button>',
+      sending:'<button class="btn sb" disabled><span class="spin"></span> 回复中...</button>',
+      done:'<button class="btn db" disabled>✅ 已回复</button>',
+      error:'<button class="btn rb" onclick="go('+i+')">↺ 重试</button>'
+    };
+    const el=document.createElement('div');
+    el.className='card'+(s.st==='sending'?' sending':'')+(isDone?' done':'')+(s.st==='error'?' err-card':'');
+    el.id='card-'+i;
+    el.innerHTML=`
+      <div class="ch">
+        <div class="badge">${i+1}</div>
+        <div class="qb">
+          <div class="qt">${esc(item.question)}</div>
+          <span class="tag tag-${item.tag}">${esc(item.tagLabel)}</span>
+          ${item.needsTag?'<span class="tag-ent">🏷️ 将自动打标签：企业版问题</span>':''}
+        </div>
+        ${statusMap[s.st]}
+      </div>
+      <div class="cb">
+        <div class="albl">📝 建议回复内容 ${!isDone?'<span class="hint">✏️ 可直接编辑修改</span>':''}</div>
+        <textarea class="ae" id="ed-${i}" rows="5" ${dis?'disabled':''} oninput="uc(${i})">${esc(item.answer)}</textarea>
+        ${s.err?'<div class="errmsg">⚠️ '+esc(s.err)+'</div>':''}
+      </div>
+      <div class="cf">
+        <span class="cc" id="cc-${i}">${item.answer.length} 字</span>
+        ${btnMap[s.st]}
+      </div>`;
+    c.appendChild(el);
+  });
+  stats();
+}
+
+function uc(i){const ta=document.getElementById('ed-'+i),cc=document.getElementById('cc-'+i);if(!ta||!cc)return;const l=ta.value.length;cc.textContent=l+' 字';cc.className='cc'+(l>800?' warn':'');data[i].answer=ta.value;}
+
+function stats(){
+  const done=states.filter(s=>s.st==='done').length,err=states.filter(s=>s.st==='error').length;
+  const remain=data.length-done;
+  document.getElementById('s-total').textContent=data.length;
+  document.getElementById('s-done').textContent=done;
+  document.getElementById('s-pending').textContent=remain;
+  document.getElementById('s-err').textContent=err;
+  document.getElementById('prog').style.width=(data.length?done/data.length*100:0)+'%';
+  document.getElementById('prog-lbl').textContent=done+' / '+data.length+' 已回复';
+  const rEl=document.getElementById('remain');if(rEl)rEl.textContent=remain;
+  const btnAll=document.getElementById('btn-all');if(btnAll){btnAll.disabled=(remain===0);if(remain===0){btnAll.textContent='🎉 全部已回复';}}
+}
+
+async function go(i){
+  alert('☁️ 云端预览版不支持实际回复操作。\n\n如需真实回复 AiSee 反馈，请在本地运行 aisee-reply-skill。\nGitHub: https://github.com/cathyffwang-hub/aisee-reply-skill');
+}
+
+// ===== 一键全部回复：依次执行所有「待回复」或「失败」状态的条目 =====
+let allRunning=false;
+async function replyAll(){
+  alert('☁️ 云端预览版不支持批量回复操作。\n\n请在本地运行 skill 后使用此功能。');
+}
+
+function toast(msg,type='ok'){
+  const icons={ok:'✅',w:'⚠️',e:'❌'};
+  document.getElementById('ti').textContent=icons[type]||'💬';
+  document.getElementById('tm').textContent=msg;
+  const t=document.getElementById('toast');t.className='toast show';
+  setTimeout(()=>t.className='toast',3500);
+}
+
+function chkSrv(){
+  const dot=document.getElementById('dot'),lbl=document.getElementById('srv-lbl');
+  dot.className='dot';dot.style.background='#fbbf24';dot.style.boxShadow='0 0 6px #fbbf24';
+  lbl.textContent='☁️ 云端演示模式';
+}
+render();chkSrv();
+</script>
+</body>
+</html>
