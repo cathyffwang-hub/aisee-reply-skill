@@ -155,6 +155,57 @@ async function ensureStaticServer() {
   }
 }
 
+// ===== 回复服务管理（端口 3400 reply_server.js，开机/重启后自动拉起）=====
+async function ensureReplyServer() {
+  log('🤖 检查回复服务...');
+  try {
+    // 探测端口是否在监听
+    const { stdout: pidOut } = await execAsync(`lsof -i :${CONFIG.REPLY_PORT} | grep LISTEN | awk '{print $2}'`).catch(() => ({ stdout: '' }));
+    const pid = pidOut.trim();
+
+    if (pid) {
+      // 额外确认进程的命令行确实是 reply_server.js，避免端口被别的进程占了
+      try {
+        const { stdout: cmd } = await execAsync(`ps -p ${pid} -o command= 2>/dev/null`);
+        if (cmd.includes('reply_server.js')) {
+          log('✅ 回复服务已就绪（' + CONFIG.REPLY_PORT + '）');
+          return;
+        }
+        warn(`端口 ${CONFIG.REPLY_PORT} 被其他进程占用：${cmd.trim().slice(0, 80)}`);
+        return;
+      } catch (e) {
+        // 忽略 ps 异常，按"已在跑"处理
+        log('✅ 回复服务已就绪（' + CONFIG.REPLY_PORT + '）');
+        return;
+      }
+    }
+
+    // 启动 reply_server.js（脱离父进程，关掉 terminal 也能活）
+    const logFile = '/tmp/aisee-reply-server.log';
+    const out = fs.openSync(logFile, 'a');
+    const err = fs.openSync(logFile, 'a');
+    const child = spawn(process.execPath, [path.join(CONFIG.SKILL_DIR, 'reply_server.js')], {
+      cwd: CONFIG.SKILL_DIR,
+      detached: true,
+      stdio: ['ignore', out, err],
+      env: { ...process.env, PORT: String(CONFIG.REPLY_PORT) },
+    });
+    child.unref();
+    // 等它起来
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const { stdout: check } = await execAsync(`lsof -i :${CONFIG.REPLY_PORT} | grep LISTEN | awk '{print $2}'`).catch(() => ({ stdout: '' }));
+      if (check.trim()) {
+        log(`✅ 回复服务已启动（PID ${check.trim()}，端口 ${CONFIG.REPLY_PORT}，日志 ${logFile}）`);
+        return;
+      }
+    }
+    warn(`回复服务启动后未在 ${CONFIG.REPLY_PORT} 端口监听，请查看 ${logFile}`);
+  } catch(e) {
+    warn('回复服务检查异常：' + e.message);
+  }
+}
+
 // ===== 知识库管理 =====
 function getKnowledgeMeta() {
   if (!fs.existsSync(CONFIG.KNOWLEDGE_FILE)) return null;
@@ -690,6 +741,8 @@ async function main() {
 
   // 0. 确保静态服务从 skill 目录启动（修复问题2+4）
   await ensureStaticServer();
+  // 0.5 确保回复服务在跑（否则工具页里点提交会 Load failed）
+  await ensureReplyServer();
 
   // 1. 知识库
   const knowledge = await getKnowledge();
@@ -745,6 +798,8 @@ async function buildAndNotify(targetDate) {
 
   // 确保静态服务
   await ensureStaticServer();
+  // 确保回复服务（关键：否则工具页里点提交会 Load failed）
+  await ensureReplyServer();
 
   // 生成 HTML
   fs.mkdirSync(path.join(__dirname, 'output'), { recursive: true });

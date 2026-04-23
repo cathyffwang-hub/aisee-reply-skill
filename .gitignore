@@ -3,3 +3,8 @@ memory/snapshot_*.json
 node_modules/
 .DS_Store
 .browser-profile/
+cookie-probe.log
+cookie-probe.log.utc-backup
+memory/notify_lock.json
+memory/knowledge.md
+.workbuddy/
