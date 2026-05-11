@@ -86,6 +86,16 @@ AiSee 反馈自动回复工具。适用于腾讯文档企业版 AiSee 反馈平�
 4. 保存数据快照
 5. 企微通知推送（去重）
 
+### 第四阶段：同步到 GitHub Pages（如同事访问的是公网地址）
+
+如果同事访问的是 GitHub Pages 公网地址，而不是本地静态服务，那么**必须额外执行发布同步**：
+
+1. 将 `output/reply_tool.html` 覆盖到 `docs/index.html`
+2. 提交 Git 变更并 push 到 `main`
+3. 等待 GitHub Pages 重新构建完成后，再把公网链接发给同事
+
+否则企微里发出去的 GitHub Pages 链接会停留在旧版本页面。
+
 ---
 
 ### 完整调用示例
