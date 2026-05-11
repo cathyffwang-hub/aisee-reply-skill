@@ -107,7 +107,8 @@ aisee-reply-skill/
 ├── SKILL.md              # 本文件（Skill 执行规范，AI 必读）
 ├── README.md             # 安装和配置说明
 ├── run.js                # 主执行脚本（两阶段模式）
-├── reply_server.js       # 浏览器驱动回复服务（端口3400）
+├── openapi.js            # OpenAPI 模块（RSA 签名 + HTTP API 调用）
+├── reply_server.js       # 回复服务（支持 OpenAPI / Cookie 双模式）
 ├── memory/
 │   ├── knowledge.md      # 知识库（15个文档源，90天自动刷新）
 │   ├── notify_lock.json  # 企微通知去重锁
@@ -119,12 +120,23 @@ aisee-reply-skill/
 
 ## Configuration
 
-在 `run.js` 的 `CONFIG` 对象中修改：
+### 认证模式（核心配置）
 
 | 字段 | 说明 |
 |------|------|
-| `AISEE_LIST` | AiSee 列表页 URL |
-| `AISEE_DETAIL` | AiSee 详情页 URL |
+| `AISEE_AUTH_MODE` | 认证模式：`openapi`（推荐）或 `cookie`（旧模式，需 iOA 登录） |
+| `AISEE_SECRET_ID` | OpenAPI Secret-Id（邮件申请获取） |
+| `AISEE_PUBLIC_KEY` | OpenAPI RSA 公钥（邮件申请获取） |
+| `AISEE_APP_ID` | AiSee 应用 ID（当前：`p5sr49xhf1`） |
+| `AISEE_USER_NAME` | 回复时显示的用户名/RTX（当前：`cathyfwang`） |
+
+**OpenAPI 模式**（默认）：无需浏览器登录，通过 HTTP API 直接调用，不受 iOA cookie 过期影响。  
+**Cookie 模式**（旧）：通过 agent-browser 驱动浏览器操作，需 iOA 登录，cookie 约 40 小时过期。
+
+### 其他配置
+
+| 字段 | 说明 |
+|------|------|
 | `WECOM_WEBHOOK` | 企业微信群机器人 Webhook 地址 |
 | `WECOM_MENTION_USERID` | 企微 @人的 userid（当前：`cathyfwang`） |
 | `KNOWLEDGE_DOCS` | 知识库文档源列表（数组，含 id/url/title） |
