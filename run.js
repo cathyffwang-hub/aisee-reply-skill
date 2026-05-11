@@ -972,7 +972,12 @@ async function buildAndNotify(targetDate) {
   const items = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
   const empty = items.filter(i => !i.answer || i.answer.trim() === '');
   if (empty.length > 0) {
-    warn(`⚠️ 还有 ${empty.length} 条回复为空，请先填充完毕`);
+    warn(`❌ 还有 ${empty.length} 条回复为空，HTML 将生成但企微通知跳过。请先完成 AI 回复填充`);
+    // 仍生成 HTML 以便查看，但不推送企微
+    const docsHtml = path.join(__dirname, 'docs', 'index.html');
+    fs.writeFileSync(docsHtml, buildHTML(items, targetDate), 'utf8');
+    log(`✅ docs/index.html 已更新`);
+    return;
   }
 
   // 确保静态服务
@@ -985,6 +990,18 @@ async function buildAndNotify(targetDate) {
   const html = buildHTML(items, targetDate);
   fs.writeFileSync(CONFIG.HTML_OUT, html, 'utf8');
   log(`✅ HTML 工具已生成：${CONFIG.HTML_OUT}`);
+
+  // ===== 同步到 GitHub Pages =====
+  const docsHtml = path.join(__dirname, 'docs', 'index.html');
+  fs.writeFileSync(docsHtml, html, 'utf8');
+  try {
+    execSync('git add docs/index.html', { cwd: __dirname, stdio: 'ignore' });
+    execSync(`git commit -m "回复工具 ${targetDate}: ${items.length}条反馈处理完毕"`, { cwd: __dirname, stdio: 'ignore' });
+    execSync('git push origin main', { cwd: __dirname, timeout: 30000, stdio: 'ignore' });
+    log('✅ 已同步到 GitHub Pages');
+  } catch(e) {
+    warn('⚠️ Git同步失败：' + e.message);
+  }
 
   // 快照
   const snap = path.join(CONFIG.MEMORY_DIR, `snapshot_${targetDate}.json`);

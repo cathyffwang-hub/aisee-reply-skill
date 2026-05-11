@@ -83,18 +83,11 @@ AiSee 反馈自动回复工具。适用于腾讯文档企业版 AiSee 反馈平�
 1. 确保静态服务 & 回复服务（未启动则自动拉起）
 2. 读取已填充的 `output/pending_ai.json`
 3. 生成回复工具 HTML（`output/reply_tool.html`）
-4. 保存数据快照
-5. 企微通知推送（去重）
+4. **自动同步到 `docs/index.html` 并 git push 到 GitHub Pages**（无需手动操作）
+5. 保存数据快照
+6. 企微通知推送（使用 GitHub Pages 公网地址，去重）
 
-### 第四阶段：同步到 GitHub Pages（如同事访问的是公网地址）
-
-如果同事访问的是 GitHub Pages 公网地址，而不是本地静态服务，那么**必须额外执行发布同步**：
-
-1. 将 `output/reply_tool.html` 覆盖到 `docs/index.html`
-2. 提交 Git 变更并 push 到 `main`
-3. 等待 GitHub Pages 重新构建完成后，再把公网链接发给同事
-
-否则企微里发出去的 GitHub Pages 链接会停留在旧版本页面。
+> ⚠️ **必须先确保 `pending_ai.json` 中所有条目的 `answer` 字段均已填充**，否则 HTML 不完整，企微通知会被跳过。
 
 ---
 
