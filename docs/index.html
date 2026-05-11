@@ -149,7 +149,7 @@
     <div class="header-divider"></div>
     <div>
       <h1>AiSee AI 小助手</h1>
-      <p>生成于 2026/5/11 21:32:09 <span class="srv"><span class="dot" id="dot"></span><span class="srv-lbl" id="srv-lbl">检查服务中...</span></span></p>
+      <p>生成于 2026/5/11 22:11:42 <span class="srv"><span class="dot" id="dot"></span><span class="srv-lbl" id="srv-lbl">检查服务中...</span></span></p>
     </div>
   </div>
   <div class="header-action">
@@ -202,7 +202,7 @@ async function sendReply(fid,content,userId){
   return apiPost('/sendFeedbackReply',{fid,content,user_id:userId,user_name:AISEE_CONFIG.userName,create_time:String(Date.now()),remark:'回复',replyContentType:0});
 }
 
-const data=[{"fid":"626897fb2ff597782bb068aa5a08fc4f","question":"投诉！！一直白屏，一直异常！！！","status":"待首次回复","time":"2026-05-11 07:46:48","user_id":"fd1b16ec24974bdd891ba06d189c285e20","answer":"您好！非常抱歉给您带来了不好的使用体验。关于一直白屏/异常的问题，可以先尝试以下排查步骤：1）清除浏览器缓存并刷新页面；2）尝试换用 Chrome 浏览器访问；3）检查网络连接是否稳定。另外请问您使用的是腾讯文档个人版（通过个人QQ/微信登录）还是企业版呢？如您使用的是个人版，建议点击该链接：https://docs.qq.com/home/feedback?src=1269 ，描述具体问题并附上截图提交反馈，以便更快定位解决。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":false},{"fid":"d178f995b9a9fffe5d6d1c2d462257f3","question":"企业版文档如何收费，文档企业版起购量就是5个账户吗","status":"待首次回复","time":"2026-04-29 06:13:46","user_id":"144115264602267616","answer":"您好，感谢您对腾讯文档企业版的关注！关于企业版的收费方案和起购量等商务问题，建议您通过以下方式获取最准确的信息：1）访问腾讯文档企业版官网咨询在线客服；2）通过企业微信联系我们的企微小助手，获取针对您企业规模的定制化报价方案。我们的商务团队会为您提供详细的产品价格和采购方案，感谢您的支持与信任！","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":true},{"fid":"8bb56eb8a0fe442319aea6f2bc4095ed","question":"文档突然打不开了，一直显示 加载，其他文档都 ok\nhttps://docs.qq.com/smartsheet/DSWd5QW9HanZpZ3JS?tab=sc_HYFXfD","status":"待首次回复","time":"2026-04-28 11:15:13","user_id":"144115210434429032","answer":"您好！关于您反馈的文档打不开、一直显示加载的问题，建议您先尝试以下排查步骤：1）清除浏览器缓存后重新打开该文档；2）尝试使用其他浏览器（推荐 Chrome）访问；3）检查网络连接是否稳定。如以上方法仍无法解决，由于您提供的链接是腾讯文档个人版（docs.qq.com）的地址，建议您点击该链接：https://docs.qq.com/home/feedback?src=1269 ，提供文档链接和具体报错截图提交反馈，个人版技术团队会为您排查定位问题。","tag":"ai","tagLabel":"AI智能回复","needsAI":false,"needsTag":false}];
+const data=[];
 
 // ===== localStorage 落盘（key 绑定当日 fid 指纹）=====
 const SKEY='aisee_'+btoa(data.map(d=>d.fid).join(',')).slice(0,16);
