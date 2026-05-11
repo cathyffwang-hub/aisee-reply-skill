@@ -22,8 +22,9 @@
   .page-wrap{max-width:100%;margin:0 auto;padding:0 8px 40px;animation:fadeInUp .6s ease}
 
   .header{background:var(--card);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--card-border);color:var(--text);padding:16px 28px;margin:16px 0;border-radius:var(--r);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:12px;z-index:20}
-  .header-left{display:flex;align-items:center;gap:14px}
-  .header-logo{height:36px}
+  .header-left{display:flex;align-items:center;gap:14px;flex-wrap:nowrap}
+  .header-logo{height:36px;flex-shrink:0}
+  .header-brand-wrap{display:flex;align-items:center;gap:10px;flex-shrink:0}
   .header-brand{font-size:20px;font-weight:800;color:var(--text);letter-spacing:-.3px}
   .header-divider{width:1.5px;height:28px;background:var(--border);opacity:.5}
   .header h1{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.1px}
@@ -112,11 +113,12 @@
     .page-wrap{padding:0 6px 100px}
     .header{flex-direction:column;align-items:flex-start;gap:10px;padding:14px 16px;margin:8px 0;border-radius:18px;position:relative;top:0}
     .header-action{display:none}
-    .header-left{flex-wrap:wrap;gap:8px}
-    .header-logo{height:28px}
-    .header-brand{font-size:16px}
-    .header-divider{height:16px}
-    .header h1{font-size:14px}
+    .header-left{flex-wrap:nowrap;gap:8px;min-width:0;overflow:hidden}
+    .header-brand-wrap{gap:6px;flex-shrink:0}
+    .header-logo{height:28px;flex-shrink:0}
+    .header-brand{font-size:15px;flex-shrink:0}
+    .header-divider{height:16px;flex-shrink:0}
+    .header h1{font-size:13px;white-space:nowrap}
     .stats{grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px}
     .stat{padding:18px 12px;border-radius:18px}
     .stat .n{font-size:28px}
@@ -275,7 +277,7 @@ function uc(i){const ta=document.getElementById('ed-'+i),cc=document.getElementB
 
 function stats(){
   const done=states.filter(s=>s.st==='done').length,err=states.filter(s=>s.st==='error').length;
-  const remain=data.length-done;
+  const remain=states.filter(s=>s.st!=='done'&&s.st!=='sending').length;
   document.getElementById('s-total').textContent=data.length;
   document.getElementById('s-done').textContent=done;
   document.getElementById('s-pending').textContent=remain;
@@ -297,7 +299,12 @@ async function go(i){
     const j=await sendReply(data[i].fid,ans,data[i].user_id||'anonymous');
     if(j.code&&j.code!==0&&j.code!==200) throw new Error(j.message||j.msg||'API错误:'+j.code);
     states[i]={st:'done',err:''};saveStates();toast('第'+(i+1)+'条已成功回复 ✅','ok');
-  }catch(e){states[i]={st:'error',err:e.message};saveStates();toast('第'+(i+1)+'条失败：'+e.message,'e');}
+  }catch(e){
+    const msg=e.message||'';
+    const hint=(msg.includes('Failed to fetch')||msg.includes('network')||msg.includes('Network')||msg.includes('fetch')||msg.includes('ERR_')||msg.includes('CORS')||msg.includes('TypeError')||msg.includes('networkerror'))?
+      '可能需要公司网络或 iOA 远程办公连接':'网络或服务器异常';
+    states[i]={st:'error',err:hint+'：'+msg};saveStates();toast('第'+(i+1)+'条失败：'+hint,'e');
+  }
   render();
 }
 
@@ -343,9 +350,25 @@ async function chkSrv(){
   try{
     const{ts,sign}=makeSign();
     const r=await fetch(AISEE_CONFIG.apiBase+'/getFeedbacks',{method:'POST',headers:{'Secret-Id':AISEE_CONFIG.secretId,'App-Id':AISEE_CONFIG.appId,'Timestamp':ts,'Sign':sign,'Content-Type':'application/json'},body:JSON.stringify({beginTime:String(Date.now()-3600000),endTime:String(Date.now()),curPage:1,pageSize:1})});
-    if(r.ok){dot.className='dot ok';lbl.textContent='OpenAPI 已连接';}
-    else throw new Error();
-  }catch{dot.className='dot err';lbl.textContent='需办公网访问';}
+    const j=await r.json().catch(()=>({}));
+    // 只有 code=0/200 且 HTTP ok 才算连接成功
+    if(r.ok&&(j.code===0||j.code===200)){dot.className='dot ok';lbl.textContent='OpenAPI 已连接';return;}
+    // 有响应但业务失败（sign错误/参数错误等）
+    const reason=j.msg||j.message||'';
+    if(reason.includes('Sign')||reason.includes('Unauthorized')||j.errcode===151401){
+      lbl.textContent='签名无效，请重新配置';dot.className='dot err';
+    }else{
+      lbl.textContent='服务异常:'+(reason.slice(0,20)||'code='+j.code);dot.className='dot err';
+    }
+  }catch(e){
+    dot.className='dot err';
+    const msg=(e.message||'').toLowerCase();
+    if(msg.includes('failed to fetch')||msg.includes('fetch')||msg.includes('cors')||msg.includes('net::')){
+      lbl.textContent='网络不通，请检查iOA';
+    }else{
+      lbl.textContent='检测失败: '+e.message.slice(0,30);
+    }
+  }
 }
 
 render();chkSrv();setInterval(chkSrv,15000);
