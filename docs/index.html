@@ -123,8 +123,8 @@
     .header-divider{height:16px;flex-shrink:0}
     .app-name{font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis}
     .header p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-    .stats{grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px}
-    .stat{padding:18px 12px;border-radius:18px}
+    .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0 10px}
+    .stat{min-width:0;width:100%;padding:18px 12px;border-radius:18px}
     .stat .n{font-size:28px}
     .stat .l{font-size:9px;letter-spacing:1px}
     .cards{grid-template-columns:1fr;gap:10px}
