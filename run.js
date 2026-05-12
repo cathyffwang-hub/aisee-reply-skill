@@ -491,9 +491,9 @@ function buildHTML(items, targetDate) {
   .header-logo{height:36px;flex-shrink:0}
   .header-title-wrap{min-width:0;display:flex;flex-direction:column;gap:3px}
   .app-brand-line{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
-  .header-brand{font-size:20px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap;line-height:1.15}
+  .header-brand{font-size:18px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap;line-height:1.15}
   .header-divider{width:1.5px;height:24px;background:var(--border);opacity:.65;flex-shrink:0}
-  .app-name{font-size:18px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap;line-height:1.15}
+  .app-name{font-size:17px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap;line-height:1.15}
   .header h1{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.1px}
   .header p{font-size:11px;color:var(--sub);margin-top:1px;font-weight:400}
   .header-action{display:flex;align-items:center}
@@ -584,9 +584,9 @@ function buildHTML(items, targetDate) {
     .header-logo{height:28px}
     .header-title-wrap{min-width:0;flex:1;overflow:hidden}
     .app-brand-line{gap:6px;max-width:100%;overflow:hidden}
-    .header-brand{font-size:15px;flex-shrink:0}
+    .header-brand{font-size:14px;flex-shrink:0}
     .header-divider{height:16px;flex-shrink:0}
-    .app-name{font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+    .app-name{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis}
     .header p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
     .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0 10px}
     .stat{min-width:0;width:100%;padding:18px 12px;border-radius:18px}
